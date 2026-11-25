@@ -8,7 +8,7 @@
     "format": "oxfmt",
     "format:check": "oxfmt --check",
     "typecheck": "tsc --noEmit",
-    "test": "node --test",
+    "test": "node --test \"test/**/*.test.ts\"",
     "prepare": "effect-tsgo patch --oxlint"
   },
   "dependencies": {

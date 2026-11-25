@@ -19,5 +19,8 @@
         "typescript/no-floating-promises": "off"
       }
     }
-  ]
+  ],
+  "rules": {
+    "eslint/no-underscore-dangle": "off"
+  }
 }

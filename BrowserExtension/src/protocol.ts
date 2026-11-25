@@ -1,45 +1,77 @@
 // Message format shared with the FineTune app. See PROTOCOL.md.
+import { Effect, Schema } from "effect";
+
 export const PROTOCOL_VERSION = 1;
 
-export type BrowserName = "chrome" | "edge" | "brave" | "arc" | "vivaldi" | "chromium";
+const Version = Schema.Literal(PROTOCOL_VERSION);
 
-export interface HelloMessage {
-  v: number;
-  type: "hello";
-  extensionVersion: string;
-  browser: BrowserName;
-}
+export const BrowserName = Schema.Literals([
+  "chrome",
+  "edge",
+  "brave",
+  "arc",
+  "vivaldi",
+  "chromium",
+]);
+export type BrowserName = typeof BrowserName.Type;
 
-export interface PingMessage {
-  v: number;
-  type: "ping";
-}
+export const Hello = Schema.Struct({
+  v: Version,
+  type: Schema.Literal("hello"),
+  extensionVersion: Schema.String,
+  browser: BrowserName,
+});
+export const Ping = Schema.Struct({ v: Version, type: Schema.Literal("ping") });
 
-export const helloMessage = (extensionVersion: string, browser: BrowserName): HelloMessage => ({
+export const OutboundMessage = Schema.Union([Hello, Ping]);
+export type OutboundMessage = typeof OutboundMessage.Type;
+
+export const helloMessage = (extensionVersion: string, browser: BrowserName): OutboundMessage => ({
   v: PROTOCOL_VERSION,
   type: "hello",
   extensionVersion,
   browser,
 });
 
-export const pingMessage = (): PingMessage => ({ v: PROTOCOL_VERSION, type: "ping" });
+export const pingMessage = (): OutboundMessage => ({ v: PROTOCOL_VERSION, type: "ping" });
 
-export type InboundMessage = { type: "pong" } | { type: "unknown"; unknownType: string };
+export const encodeOutbound = Schema.encodeEffect(OutboundMessage);
 
-// Returns { type: 'pong' } or { type: 'unknown', unknownType }; throws on a bad version or shape.
-export function parseMessage(message: unknown): InboundMessage {
-  if (message === null || typeof message !== "object" || Array.isArray(message)) {
-    throw new Error("malformed message");
-  }
-  const { v, type } = message as { v?: unknown; type?: unknown };
-  if (typeof v !== "number" || !Number.isInteger(v) || typeof type !== "string") {
-    throw new Error("malformed message");
-  }
-  if (v !== PROTOCOL_VERSION) {
-    throw new Error(`unsupported protocol version ${v}`);
-  }
-  return type === "pong" ? { type: "pong" } : { type: "unknown", unknownType: type };
-}
+export const Pong = Schema.Struct({ v: Version, type: Schema.Literal("pong") });
+
+const KnownInbound = Schema.Union([Pong]);
+const KNOWN_TYPES: ReadonlySet<string> = new Set(["pong"]);
+
+export type InboundMessage =
+  | typeof KnownInbound.Type
+  | { readonly type: "unknown"; readonly unknownType: string };
+
+export class MalformedMessage extends Schema.TaggedError<
+  MalformedMessage,
+  { readonly brand: unique symbol }
+>()("MalformedMessage", {}) {}
+
+export class UnsupportedVersion extends Schema.TaggedError<
+  UnsupportedVersion,
+  { readonly brand: unique symbol }
+>()("UnsupportedVersion", { version: Schema.Int }) {}
+
+const Envelope = Schema.Struct({ v: Schema.Int, type: Schema.String });
+const decodeEnvelope = Schema.decodeUnknownEffect(Envelope);
+const decodeKnown = Schema.decodeUnknownEffect(KnownInbound);
+
+// A bad shape or a known type with bad fields is malformed, another version is unsupported,
+// and a well-formed message of a type this build doesn't know is reported as `unknown`.
+export const parseMessage = Effect.fn("parseMessage")(function* (
+  raw: unknown,
+): Effect.fn.Return<InboundMessage, MalformedMessage | UnsupportedVersion> {
+  const { v, type } = yield* decodeEnvelope(raw).pipe(
+    Effect.mapError(() => new MalformedMessage()),
+  );
+  if (v !== PROTOCOL_VERSION) return yield* new UnsupportedVersion({ version: v });
+  if (!KNOWN_TYPES.has(type)) return { type: "unknown", unknownType: type } as const;
+  return yield* decodeKnown(raw).pipe(Effect.mapError(() => new MalformedMessage()));
+});
 
 // Best effort from inside a service worker: Arc and Chromium look exactly like Chrome and report 'chrome'.
 export function detectBrowser(userAgent: string, isBrave: boolean): BrowserName {

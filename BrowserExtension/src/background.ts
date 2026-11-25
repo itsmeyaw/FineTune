@@ -1,10 +1,16 @@
-import { createBridge } from "./bridge.ts";
+import { Effect, Layer } from "effect";
+import { Bridge } from "./bridge.ts";
+import { Chrome, ExtensionInfo } from "./chrome.ts";
 import { detectBrowser } from "./protocol.ts";
 
-createBridge({
-  connectNative: (name) => chrome.runtime.connectNative(name),
-  hostName: "com.finetuneapp.finetune",
-  extensionVersion: chrome.runtime.getManifest().version,
-  browser: detectBrowser(navigator.userAgent, Boolean((navigator as { brave?: unknown }).brave)),
-  timers: { setTimeout, clearTimeout, setInterval, clearInterval },
-}).start();
+const extensionInfo = Layer.sync(ExtensionInfo, () =>
+  ExtensionInfo.of({
+    hostName: "com.finetuneapp.finetune",
+    extensionVersion: chrome.runtime.getManifest().version,
+    browser: detectBrowser(navigator.userAgent, "brave" in navigator),
+  }),
+);
+
+const main = Bridge.layer.pipe(Layer.provide(Layer.mergeAll(Chrome.layer, extensionInfo)));
+
+Effect.runFork(Layer.launch(main));
