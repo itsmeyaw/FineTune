@@ -8,7 +8,7 @@ struct BrowserTab: Equatable, Identifiable {
     let title: String
     /// Hostname of the tab's URL, e.g. `www.youtube.com`. Empty when unknown.
     let site: String
-    /// `http(s)` or `data:` URL of the tab's favicon.
+    /// `data:image/...` URL of the tab's favicon; `BrowserFavicon` ignores any other value.
     let favicon: String?
     let isMuted: Bool
     let isWindowFocused: Bool

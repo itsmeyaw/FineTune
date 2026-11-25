@@ -12,6 +12,17 @@ struct BrowserTabRow: View {
 
     @State private var isHovered = false
     @State private var isIconHovered = false
+    /// Decoded once per favicon value, not on every body evaluation.
+    @State private var faviconImage: NSImage?
+
+    init(tab: BrowserTab, isBrowserMuted: Bool, isFocused: Bool, onMuteChange: @escaping (Bool) -> Void, onFocus: @escaping () -> Void) {
+        self.tab = tab
+        self.isBrowserMuted = isBrowserMuted
+        self.isFocused = isFocused
+        self.onMuteChange = onMuteChange
+        self.onFocus = onFocus
+        _faviconImage = State(initialValue: BrowserFavicon.image(from: tab.favicon))
+    }
 
     private static let iconSize: CGFloat = 16
     private static let indent: CGFloat = DesignTokens.Spacing.xl
@@ -52,20 +63,15 @@ struct BrowserTabRow: View {
                 .allowsHitTesting(false)
         }
         .onHover { isHovered = $0 }
+        .onChange(of: tab.favicon) { _, favicon in faviconImage = BrowserFavicon.image(from: favicon) }
         .animation(DesignTokens.Animation.hover, value: isHovered)
         .animation(DesignTokens.Animation.hover, value: isFocused)
     }
 
     @ViewBuilder
     private var siteIcon: some View {
-        if let favicon = tab.favicon, let url = URL(string: favicon) {
-            AsyncImage(url: url) { phase in
-                if let image = phase.image {
-                    image.resizable().aspectRatio(contentMode: .fit)
-                } else {
-                    fallbackIcon
-                }
-            }
+        if let faviconImage {
+            Image(nsImage: faviconImage).resizable().aspectRatio(contentMode: .fit)
         } else {
             fallbackIcon
         }
