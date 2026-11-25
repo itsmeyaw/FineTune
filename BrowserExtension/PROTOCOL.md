@@ -24,11 +24,11 @@ The reader rejects frames over 1 MiB.
 Every message is a JSON object with an integer `v` (protocol version, currently `1`) and a string `type`.
 Other fields depend on `type`.
 
-| type    | direction        | fields                                  | meaning |
-|---------|------------------|-----------------------------------------|---------|
-| `hello` | extension → app  | `extensionVersion: string`, `browser: string` | First message on every connection. `browser` is one of `chrome`, `edge`, `brave`, `arc`, `vivaldi`, `chromium`. |
-| `ping`  | extension → app  | none                                    | Liveness check. Sent right after `hello`, then every 20 s. |
-| `pong`  | app → extension  | none                                    | Answer to `ping`. The extension reconnects if a whole heartbeat interval passes with no message from the app. |
+| type    | direction       | fields                                        | meaning                                                                                                         |
+| ------- | --------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `hello` | extension → app | `extensionVersion: string`, `browser: string` | First message on every connection. `browser` is one of `chrome`, `edge`, `brave`, `arc`, `vivaldi`, `chromium`. |
+| `ping`  | extension → app | none                                          | Liveness check. Sent right after `hello`, then every 20 s.                                                      |
+| `pong`  | app → extension | none                                          | Answer to `ping`. The extension reconnects if a whole heartbeat interval passes with no message from the app.   |
 
 ```json
 {"v":1,"type":"hello","extensionVersion":"0.1.0","browser":"chrome"}
@@ -62,8 +62,15 @@ from the manifest key so they can't drift. The matching private key is not in th
 To regenerate the ID from a key: take the first 16 bytes of SHA-256 over the DER-encoded public key,
 write them as hex, and map the digits `0-9a-f` to `a-p`.
 
-## Tests
+## Build and test
+
+TypeScript, built with Vite, linted with oxlint, formatted with oxfmt. Uses pnpm (see `packageManager` in `package.json`).
 
 ```
-cd BrowserExtension && node --test
+cd BrowserExtension
+pnpm install --frozen-lockfile
+pnpm run lint && pnpm run format:check && pnpm run typecheck && pnpm test && pnpm run build
 ```
+
+`pnpm run build` writes the loadable extension to `BrowserExtension/dist/` (service worker bundle plus
+`manifest.json` with the pinned `key`). Load unpacked means loading `dist`, not `BrowserExtension`.
