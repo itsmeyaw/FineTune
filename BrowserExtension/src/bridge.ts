@@ -1,9 +1,9 @@
 // Keeps one native messaging connection to the FineTune app alive.
-import { Context, Effect, Layer, Ref, Schedule, Schema, Stream } from "effect";
+import { Context, Effect, Layer, Queue, Ref, Schedule, Schema, Stream } from "effect";
 import { Chrome, ExtensionInfo } from "./chrome.ts";
 import type { NativePort } from "./chrome.ts";
-import { encodeOutbound, helloMessage, parseMessage, pingMessage } from "./protocol.ts";
-import type { OutboundMessage } from "./protocol.ts";
+import { encodeOutbound, helloMessage, isCommand, parseMessage, pingMessage } from "./protocol.ts";
+import type { Command, OutboundMessage } from "./protocol.ts";
 
 const BASE_DELAY = "1 second";
 const MAX_DELAY = "10 seconds";
@@ -29,6 +29,10 @@ export class Bridge extends Context.Service<
   {
     /** Sends to the app; a no-op while disconnected. */
     readonly send: (message: OutboundMessage) => Effect.Effect<void>;
+    /** Emits each time a connection to the app is established; consume with one reader. */
+    readonly connected: Stream.Stream<void>;
+    /** Commands from the app; consume with one reader. */
+    readonly commands: Stream.Stream<Command>;
   }
 >()("finetune/Bridge") {
   static readonly layer = Layer.effect(
@@ -37,6 +41,8 @@ export class Bridge extends Context.Service<
       const chrome = yield* Chrome;
       const info = yield* ExtensionInfo;
       const current = yield* Ref.make<NativePort | undefined>(undefined);
+      const connected = yield* Queue.unbounded<void>();
+      const commands = yield* Queue.unbounded<Command>();
 
       const session = Effect.gen(function* () {
         const port = yield* chrome.connectNative(info.hostName);
@@ -46,12 +52,16 @@ export class Bridge extends Context.Service<
         yield* Effect.addFinalizer(() => Ref.set(current, undefined));
         yield* sendOn(port, helloMessage(info.extensionVersion, info.browser));
         yield* sendOn(port, pingMessage());
+        yield* Queue.offer(connected, undefined);
 
         const listen = port.messages.pipe(
           Stream.runForEach((raw) =>
             parseMessage(raw).pipe(
-              Effect.andThen(Ref.set(heardSinceBeat, true)),
-              Effect.andThen(Ref.set(everHeard, true)),
+              Effect.tap(() => Ref.set(heardSinceBeat, true)),
+              Effect.tap(() => Ref.set(everHeard, true)),
+              Effect.flatMap((message) =>
+                isCommand(message) ? Queue.offer(commands, message) : Effect.void,
+              ),
               Effect.ignore,
             ),
           ),
@@ -86,7 +96,11 @@ export class Bridge extends Context.Service<
         Ref.get(current).pipe(
           Effect.flatMap((port) => (port === undefined ? Effect.void : sendOn(port, message))),
         );
-      return Bridge.of({ send });
+      return Bridge.of({
+        send,
+        connected: Stream.fromQueue(connected),
+        commands: Stream.fromQueue(commands),
+      });
     }),
   );
 }

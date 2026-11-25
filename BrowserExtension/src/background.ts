@@ -2,6 +2,7 @@ import { Effect, Layer } from "effect";
 import { Bridge } from "./bridge.ts";
 import { Chrome, ExtensionInfo } from "./chrome.ts";
 import { detectBrowser } from "./protocol.ts";
+import { TabReporter } from "./tabs.ts";
 
 const extensionInfo = Layer.sync(ExtensionInfo, () =>
   ExtensionInfo.of({
@@ -11,6 +12,9 @@ const extensionInfo = Layer.sync(ExtensionInfo, () =>
   }),
 );
 
-const main = Bridge.layer.pipe(Layer.provide(Layer.mergeAll(Chrome.layer, extensionInfo)));
+const main = TabReporter.layer.pipe(
+  Layer.provide(Bridge.layer),
+  Layer.provide(Layer.mergeAll(Chrome.layer, extensionInfo)),
+);
 
 Effect.runFork(Layer.launch(main));

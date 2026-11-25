@@ -8,6 +8,9 @@ import {
   helloMessage,
   parseMessage,
   pingMessage,
+  tabRemovedMessage,
+  tabUpdatedMessage,
+  tabsMessage,
 } from "../src/protocol.ts";
 
 const parse = (raw: unknown) => Effect.runPromise(parseMessage(raw));
@@ -57,4 +60,48 @@ test("detectBrowser tells Edge, Brave and Vivaldi from Chrome", () => {
   assert.equal(detectBrowser(`${chrome} Edg/130.0.0.0`, false), "edge");
   assert.equal(detectBrowser(chrome, true), "brave");
   assert.equal(detectBrowser(`${chrome} Vivaldi/7.0`, false), "vivaldi");
+});
+
+test("tab messages are versioned and omit an unknown favicon", async () => {
+  const tab = { id: 7, title: "T", site: "a.com", muted: false, windowFocused: true };
+  const encode = (message: Parameters<typeof encodeOutbound>[0]) =>
+    Effect.runPromise(encodeOutbound(message));
+  assert.deepEqual(await encode(tabsMessage([tab])), { v: 1, type: "tabs", tabs: [tab] });
+  assert.deepEqual(await encode(tabUpdatedMessage({ ...tab, favicon: "data:x" })), {
+    v: 1,
+    type: "tabUpdated",
+    tab: { ...tab, favicon: "data:x" },
+  });
+  assert.deepEqual(await encode(tabRemovedMessage(7, true)), {
+    v: 1,
+    type: "tabRemoved",
+    tabId: 7,
+    closed: true,
+  });
+});
+
+test("parseMessage accepts setMuted and focus commands", async () => {
+  assert.deepEqual(await parse({ v: 1, type: "setMuted", tabId: 3, muted: true }), {
+    v: 1,
+    type: "setMuted",
+    tabId: 3,
+    muted: true,
+  });
+  assert.deepEqual(await parse({ v: 1, type: "focus", tabId: 3 }), {
+    v: 1,
+    type: "focus",
+    tabId: 3,
+  });
+});
+
+test("parseMessage rejects commands with missing or ill-typed fields", async () => {
+  for (const bad of [
+    { v: 1, type: "setMuted", tabId: 3 },
+    { v: 1, type: "setMuted", tabId: "3", muted: true },
+    { v: 1, type: "setMuted", tabId: 3, muted: "yes" },
+    { v: 1, type: "focus" },
+    { v: 1, type: "focus", tabId: 1.5 },
+  ]) {
+    assert.equal((await parseError(bad))._tag, "MalformedMessage");
+  }
 });

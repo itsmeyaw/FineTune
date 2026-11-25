@@ -36,6 +36,42 @@ Other fields depend on `type`.
 {"v":1,"type":"pong"}
 ```
 
+### Tabs
+
+A **Tab** is a browser tab that is `audible` or muted (`mutedInfo.muted`). The extension reports only those.
+It sends a full `tabs` snapshot right after `hello`/`ping` on every connection, then incremental updates.
+
+| type         | direction       | fields                       | meaning                                                                                                                                                                                 |
+| ------------ | --------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tabs`       | extension → app | `tabs: [Tab]`                | Full snapshot. Replaces every Tab previously reported on this connection.                                                                                                               |
+| `tabUpdated` | extension → app | `tab: Tab`                   | A Tab appeared or one of its fields changed.                                                                                                                                            |
+| `tabRemoved` | extension → app | `tabId: int`, `closed: bool` | The tab is no longer reportable. `closed` is `true` when the tab was closed and `false` when it stopped being audible (and isn't muted). The app keeps a not-closed Tab listed for 5 s. |
+| `setMuted`   | app → extension | `tabId: int`, `muted: bool`  | Mute or unmute the tab (`chrome.tabs.update`). The extension answers through the normal `tabUpdated`.                                                                                   |
+| `focus`      | app → extension | `tabId: int`                 | Activate the tab and focus its window.                                                                                                                                                  |
+
+`Tab`:
+
+| field           | type    | notes                                                                               |
+| --------------- | ------- | ----------------------------------------------------------------------------------- |
+| `id`            | int     | Browser tab id. Unique within one browser session; the app also keys by connection. |
+| `title`         | string  | May be empty.                                                                       |
+| `site`          | string  | Hostname of the tab URL (`www.youtube.com`); empty when the URL has none.           |
+| `favicon`       | string? | The tab's `favIconUrl` (http(s) or `data:` URL). Omitted when unknown.              |
+| `muted`         | bool    | `mutedInfo.muted`.                                                                  |
+| `windowFocused` | bool    | The tab's window is the browser's last focused window.                              |
+
+Optional fields can be added to `Tab` without a protocol bump. Tab Volume will add `volume` and `volumeSupported`.
+
+```json
+{"v":1,"type":"tabs","tabs":[{"id":12,"title":"Song","site":"www.youtube.com","favicon":"https://www.youtube.com/favicon.ico","muted":false,"windowFocused":true}]}
+{"v":1,"type":"tabRemoved","tabId":12,"closed":false}
+{"v":1,"type":"setMuted","tabId":12,"muted":true}
+{"v":1,"type":"focus","tabId":12}
+```
+
+One extension instance runs per browser profile, so a Browser with several profiles opens several connections.
+The app merges their Tabs into one flat list. A connection's Tabs are cleared when it closes.
+
 ## Evolving the protocol
 
 - **Unknown `type`**: receivers ignore it (and keep the connection). New message types can ship
@@ -44,13 +80,14 @@ Other fields depend on `type`.
 - **Different `v`**: the message is dropped, and the connection stays open. Bump `v` only for a change that
   existing receivers can't safely ignore; new optional fields and new types don't need a bump.
 - **Malformed message** (not an object, missing/ill-typed `v` or `type`, or missing required fields of a known type): dropped.
-- Planned slices add, in this same envelope: tab snapshots/updates (extension → app) and
-  `setMuted` / `focus` / `setVolume` commands (app → extension).
+- A planned slice adds a `setVolume` command (app → extension) in this same envelope.
 
 ## Known limits
 
 - `browser` is the extension's best guess from inside the service worker (user agent, `navigator.brave`).
-  Arc and Chromium are indistinguishable from Chrome and report `chrome`.
+  Arc and Chromium are indistinguishable from Chrome and report `chrome`. The app therefore prefers the
+  bundle ID of the process that launched the host (the browser) over `hello.browser` when it can read it,
+  and falls back to `hello.browser` otherwise.
 
 ## Extension ID
 

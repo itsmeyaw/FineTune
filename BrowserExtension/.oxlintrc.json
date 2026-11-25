@@ -16,7 +16,8 @@
     {
       "files": ["test/**"],
       "rules": {
-        "typescript/no-floating-promises": "off"
+        "typescript/no-floating-promises": "off",
+        "typescript/no-unsafe-type-assertion": "off"
       }
     }
   ],

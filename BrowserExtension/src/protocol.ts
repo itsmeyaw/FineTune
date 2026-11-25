@@ -23,7 +23,35 @@ export const Hello = Schema.Struct({
 });
 export const Ping = Schema.Struct({ v: Version, type: Schema.Literal("ping") });
 
-export const OutboundMessage = Schema.Union([Hello, Ping]);
+/** A browser tab that makes sound or that the user muted. Optional fields can be added without a protocol bump. */
+export const Tab = Schema.Struct({
+  id: Schema.Int,
+  title: Schema.String,
+  site: Schema.String,
+  favicon: Schema.optionalKey(Schema.String),
+  muted: Schema.Boolean,
+  windowFocused: Schema.Boolean,
+});
+export type Tab = typeof Tab.Type;
+
+export const TabsSnapshot = Schema.Struct({
+  v: Version,
+  type: Schema.Literal("tabs"),
+  tabs: Schema.Array(Tab),
+});
+export const TabUpdated = Schema.Struct({
+  v: Version,
+  type: Schema.Literal("tabUpdated"),
+  tab: Tab,
+});
+export const TabRemoved = Schema.Struct({
+  v: Version,
+  type: Schema.Literal("tabRemoved"),
+  tabId: Schema.Int,
+  closed: Schema.Boolean,
+});
+
+export const OutboundMessage = Schema.Union([Hello, Ping, TabsSnapshot, TabUpdated, TabRemoved]);
 export type OutboundMessage = typeof OutboundMessage.Type;
 
 export const helloMessage = (extensionVersion: string, browser: BrowserName): OutboundMessage => ({
@@ -35,12 +63,48 @@ export const helloMessage = (extensionVersion: string, browser: BrowserName): Ou
 
 export const pingMessage = (): OutboundMessage => ({ v: PROTOCOL_VERSION, type: "ping" });
 
+export const tabsMessage = (tabs: ReadonlyArray<Tab>): OutboundMessage => ({
+  v: PROTOCOL_VERSION,
+  type: "tabs",
+  tabs,
+});
+
+export const tabUpdatedMessage = (tab: Tab): OutboundMessage => ({
+  v: PROTOCOL_VERSION,
+  type: "tabUpdated",
+  tab,
+});
+
+export const tabRemovedMessage = (tabId: number, closed: boolean): OutboundMessage => ({
+  v: PROTOCOL_VERSION,
+  type: "tabRemoved",
+  tabId,
+  closed,
+});
+
 export const encodeOutbound = Schema.encodeEffect(OutboundMessage);
 
 export const Pong = Schema.Struct({ v: Version, type: Schema.Literal("pong") });
 
-const KnownInbound = Schema.Union([Pong]);
-const KNOWN_TYPES: ReadonlySet<string> = new Set(["pong"]);
+export const SetMuted = Schema.Struct({
+  v: Version,
+  type: Schema.Literal("setMuted"),
+  tabId: Schema.Int,
+  muted: Schema.Boolean,
+});
+export const Focus = Schema.Struct({
+  v: Version,
+  type: Schema.Literal("focus"),
+  tabId: Schema.Int,
+});
+
+/** What the app asks the extension to do with a tab. */
+export type Command = typeof SetMuted.Type | typeof Focus.Type;
+export const isCommand = (message: InboundMessage): message is Command =>
+  message.type === "setMuted" || message.type === "focus";
+
+const KnownInbound = Schema.Union([Pong, SetMuted, Focus]);
+const KNOWN_TYPES: ReadonlySet<string> = new Set(["pong", "setMuted", "focus"]);
 
 export type InboundMessage =
   | typeof KnownInbound.Type
