@@ -34,3 +34,17 @@ Code on the audio callback path (`processAudio()` in `Audio/Engine/ProcessTapCon
 ## Ignored paths
 
 - `CLAUDE.md`, `docs/`, `.claude/`, `reference/` (vendored Apple headers, not redistributable), and `scripts/spikes/` are gitignored. Never commit them.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues on the fork `itsmeyaw/FineTune` (via `gh`; never file upstream into `ronitsingh10/FineTune`). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five-role vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
