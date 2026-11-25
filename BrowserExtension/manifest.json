@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "FineTune",
+  "description": "Per-tab audio control for the FineTune Mac app.",
+  "version": "0.1.0",
+  "minimum_chrome_version": "116",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwRwc5bv0t+0vohcw9L46qMHT++SMcWHWSYTFbOX0Z3+JnT9JIl2OrdYL+/Y6R4ZkF9cZny4kE6qHMKdXjJ0bU3QO1M1Xq70uQv+0z4hnuuI2MayaKIWhoTokjhFCzjCMjfwsrUqzpV3d3Q+4TnpaK+NlEbwWKHRIIhU5Ah/GrIyaD+tPZkGEDD2Uc4xqp8RIDBYIEVqT2neGWTpnp1wiH9nKWx4LO7zPeuw0JhkpZyvYD95qi5urc4y/mI9VsAfQNAE84mF/UBALL5oFhOvK9vSPVsWyDAqglEjppgnBbH7nWMxVGnGjeRYcAAgFyj+gD0h0nt6Mo7OxIgeX3YeXOQIDAQAB",
+  "permissions": ["nativeMessaging", "tabs"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  }
+}
