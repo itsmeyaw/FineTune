@@ -105,3 +105,41 @@ test("parseMessage rejects commands with missing or ill-typed fields", async () 
     assert.equal((await parseError(bad))._tag, "MalformedMessage");
   }
 });
+
+test("parseMessage accepts setVolume between 0 and 1 and rejects anything else", async () => {
+  for (const volume of [0, 0.25, 1]) {
+    assert.deepEqual(await parse({ v: 1, type: "setVolume", tabId: 3, volume }), {
+      v: 1,
+      type: "setVolume",
+      tabId: 3,
+      volume,
+    });
+  }
+  for (const bad of [
+    { v: 1, type: "setVolume", tabId: 3 },
+    { v: 1, type: "setVolume", tabId: 3, volume: 1.5 },
+    { v: 1, type: "setVolume", tabId: 3, volume: -0.1 },
+    { v: 1, type: "setVolume", tabId: 3, volume: "0.5" },
+    { v: 1, type: "setVolume", tabId: 3, volume: null },
+    { v: 1, type: "setVolume", tabId: 1.5, volume: 0.5 },
+  ]) {
+    assert.equal((await parseError(bad))._tag, "MalformedMessage");
+  }
+});
+
+test("tabs carry their volume and whether it can be changed", async () => {
+  const tab = {
+    id: 7,
+    title: "T",
+    site: "a.com",
+    muted: false,
+    windowFocused: true,
+    volume: 0.5,
+    volumeSupported: true,
+  };
+  assert.deepEqual(await Effect.runPromise(encodeOutbound(tabUpdatedMessage(tab))), {
+    v: 1,
+    type: "tabUpdated",
+    tab,
+  });
+});
