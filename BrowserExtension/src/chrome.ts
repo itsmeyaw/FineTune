@@ -1,6 +1,7 @@
 // Thin edge over chrome.*; everything else talks to this service so tests can fake it.
 import { Context, Deferred, Effect, Exit, Layer, Queue, Schema, Stream } from "effect";
 import type { Scope } from "effect";
+import { MAX_FAVICON_DATA_URL_LENGTH } from "./protocol.ts";
 import type { BrowserName } from "./protocol.ts";
 
 export interface NativePort {
@@ -47,6 +48,11 @@ export class Chrome extends Context.Service<
     readonly setTabMuted: (tabId: number, muted: boolean) => Effect.Effect<void, ChromeError>;
     readonly activateTab: (tabId: number) => Effect.Effect<void, ChromeError>;
     readonly focusWindow: (windowId: number) => Effect.Effect<void, ChromeError>;
+    /**
+     * The page's favicon as a PNG data URL, read from the browser's own cache (`_favicon`), or
+     * undefined when there is none or it is too big. Never touches the network.
+     */
+    readonly favicon: (pageUrl: string) => Effect.Effect<string | undefined, ChromeError>;
     /** The browser's last focused window, or undefined when it has none. */
     readonly lastFocusedWindowId: Effect.Effect<number | undefined>;
     /** Tab events from the moment the layer was built; consume with one reader. */
@@ -113,6 +119,20 @@ export class Chrome extends Context.Service<
           attempt(() => chrome.tabs.update(tabId, { active: true })).pipe(Effect.asVoid),
         focusWindow: (windowId) =>
           attempt(() => chrome.windows.update(windowId, { focused: true })).pipe(Effect.asVoid),
+        favicon: (pageUrl) =>
+          attempt(async () => {
+            const url = new URL(chrome.runtime.getURL("/_favicon/"));
+            url.searchParams.set("pageUrl", pageUrl);
+            url.searchParams.set("size", "32");
+            const response = await fetch(url);
+            if (!response.ok) return undefined;
+            const blob = await response.blob();
+            if (blob.type !== "image/png" || blob.size > MAX_FAVICON_DATA_URL_LENGTH) {
+              return undefined;
+            }
+            const bytes = new Uint8Array(await blob.arrayBuffer());
+            return `data:image/png;base64,${btoa(String.fromCharCode(...bytes))}`;
+          }),
         lastFocusedWindowId: attempt(() => chrome.windows.getLastFocused()).pipe(
           Effect.map((window) => window.id),
           // macOS Chrome can run with no window.

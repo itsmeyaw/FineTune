@@ -51,19 +51,19 @@ It sends a full `tabs` snapshot right after `hello`/`ping` on every connection, 
 
 `Tab`:
 
-| field           | type    | notes                                                                               |
-| --------------- | ------- | ----------------------------------------------------------------------------------- |
-| `id`            | int     | Browser tab id. Unique within one browser session; the app also keys by connection. |
-| `title`         | string  | May be empty.                                                                       |
-| `site`          | string  | Hostname of the tab URL (`www.youtube.com`); empty when the URL has none.           |
-| `favicon`       | string? | The tab's `favIconUrl` (http(s) or `data:` URL). Omitted when unknown.              |
-| `muted`         | bool    | `mutedInfo.muted`.                                                                  |
-| `windowFocused` | bool    | The tab's window is the browser's last focused window.                              |
+| field           | type    | notes                                                                                                                      |
+| --------------- | ------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `id`            | int     | Browser tab id. Unique within one browser session; the app also keys by connection.                                        |
+| `title`         | string  | May be empty.                                                                                                              |
+| `site`          | string  | Hostname of the tab URL (`www.youtube.com`); empty when the URL has none.                                                  |
+| `favicon`       | string? | PNG `data:image/png;base64,` URL, at most 16 KiB. Never a remote URL: the app ignores anything else. Omitted when unknown. |
+| `muted`         | bool    | `mutedInfo.muted`.                                                                                                         |
+| `windowFocused` | bool    | The tab's window is the browser's last focused window.                                                                     |
 
 Optional fields can be added to `Tab` without a protocol bump. Tab Volume will add `volume` and `volumeSupported`.
 
 ```json
-{"v":1,"type":"tabs","tabs":[{"id":12,"title":"Song","site":"www.youtube.com","favicon":"https://www.youtube.com/favicon.ico","muted":false,"windowFocused":true}]}
+{"v":1,"type":"tabs","tabs":[{"id":12,"title":"Song","site":"www.youtube.com","favicon":"data:image/png;base64,iVBORw0KGgo=","muted":false,"windowFocused":true}]}
 {"v":1,"type":"tabRemoved","tabId":12,"closed":false}
 {"v":1,"type":"setMuted","tabId":12,"muted":true}
 {"v":1,"type":"focus","tabId":12}

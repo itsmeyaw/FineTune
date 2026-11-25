@@ -18,6 +18,8 @@ const tab = (over: Partial<ChromeTab> = {}): ChromeTab => ({
   ...over,
 });
 
+const PNG = "data:image/png;base64,iVBORw0KGgo=";
+
 const muted = (over: Partial<ChromeTab> = {}) =>
   tab({ audible: false, mutedInfo: { muted: true }, ...over });
 const silent = (over: Partial<ChromeTab> = {}) => tab({ audible: false, ...over });
@@ -47,24 +49,103 @@ test("reports audible tabs and muted tabs, nothing else", () => {
 });
 
 test("tabInfo carries id, title, site, favicon, muted and window focus", () => {
-  assert.deepEqual(tabInfo(tab(), 10), {
+  assert.deepEqual(tabInfo(tab(), 10, PNG), {
     id: 1,
     title: "Song",
     site: "www.youtube.com",
-    favicon: "https://www.youtube.com/favicon.ico",
+    favicon: PNG,
     muted: false,
     windowFocused: true,
   });
-  assert.deepEqual(tabInfo(muted({ favIconUrl: undefined, url: "chrome://x" }), 99), {
+  assert.deepEqual(tabInfo(muted({ url: "chrome://x" }), 99, undefined), {
     id: 1,
     title: "Song",
     site: "x",
     muted: true,
     windowFocused: false,
   });
-  assert.equal(tabInfo(tab({ url: undefined, title: undefined }), 10).site, "");
-  assert.equal(tabInfo(tab({ url: "not a url" }), 10).site, "");
+  assert.equal(tabInfo(tab({ url: undefined, title: undefined }), 10, undefined).site, "");
+  assert.equal(tabInfo(tab({ url: "not a url" }), 10, undefined).site, "");
 });
+
+test("the favicon is a local data URL; the page's remote favicon URL is never sent", () =>
+  runTest(
+    Effect.gen(function* () {
+      const { sent, calls } = yield* start({
+        tabs: [tab()],
+        favicons: { "https://www.youtube.com/watch?v=1": PNG },
+      });
+      const snapshot = sent()[0] as { tabs: Array<{ favicon?: string }> };
+      assert.equal(snapshot.tabs[0]?.favicon, PNG);
+      assert.deepEqual(calls.faviconRequests, ["https://www.youtube.com/watch?v=1"]);
+    }),
+  ));
+
+test("a tab without an obtainable favicon is sent without one", () =>
+  runTest(
+    Effect.gen(function* () {
+      const { sent } = yield* start({ tabs: [tab()] });
+      const snapshot = sent()[0] as { tabs: Array<Record<string, unknown>> };
+      assert.equal("favicon" in (snapshot.tabs[0] ?? {}), false);
+    }),
+  ));
+
+test("favicons that are too big or not PNG data URLs are dropped", () =>
+  runTest(
+    Effect.gen(function* () {
+      const big = `data:image/png;base64,${"A".repeat(16 * 1024)}`;
+      const { sent } = yield* start({
+        tabs: [tab({ id: 1, url: "https://a.com/" }), tab({ id: 2, url: "https://b.com/" })],
+        favicons: { "https://a.com/": big, "https://b.com/": "https://b.com/favicon.ico" },
+      });
+      const snapshot = sent()[0] as { tabs: Array<Record<string, unknown>> };
+      assert.deepEqual(
+        snapshot.tabs.map((t) => "favicon" in t),
+        [false, false],
+      );
+    }),
+  ));
+
+test("favicons are cached per origin and only asked for http(s) pages", () =>
+  runTest(
+    Effect.gen(function* () {
+      const { sent, calls, emitTab } = yield* start({
+        tabs: [
+          tab({ id: 1, url: "https://a.com/one" }),
+          tab({ id: 2, url: "https://a.com/two" }),
+          tab({ id: 3, url: "chrome://settings" }),
+        ],
+        favicons: { "https://a.com/one": PNG },
+      });
+      assert.deepEqual(calls.faviconRequests, ["https://a.com/one"]);
+      const snapshot = sent()[0] as { tabs: Array<{ favicon?: string }> };
+      assert.deepEqual(
+        snapshot.tabs.map((t) => t.favicon),
+        [PNG, PNG, undefined],
+      );
+      emitTab({
+        kind: "updated",
+        tabId: 2,
+        changed: ["title"],
+        tab: tab({ id: 2, url: "https://a.com/two", title: "Next" }),
+      });
+      yield* settle;
+      assert.equal(calls.faviconRequests.length, 1);
+      assert.equal((sent().at(-1) as { tab: { favicon?: string } }).tab.favicon, PNG);
+    }),
+  ));
+
+test("a favicon that was missing is asked for again on the next change", () =>
+  runTest(
+    Effect.gen(function* () {
+      const { sent, state, calls, emitTab } = yield* start({ tabs: [tab()] });
+      state.favicons = { "https://www.youtube.com/watch?v=1": PNG };
+      emitTab({ kind: "updated", tabId: 1, changed: ["favIconUrl"], tab: tab() });
+      yield* settle;
+      assert.equal(calls.faviconRequests.length, 2);
+      assert.equal((sent().at(-1) as { tab: { favicon?: string } }).tab.favicon, PNG);
+    }),
+  ));
 
 test("a snapshot of only the reportable tabs goes out on connect", () =>
   runTest(

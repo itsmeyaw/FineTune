@@ -18,12 +18,24 @@ export interface FakePort {
  * Fakes chrome.* for tests: `ports` lists every native connection opened so far, `tabs` is the
  * browser's tab list, and `calls` records what the extension asked the browser to do.
  */
-export function makeFakeChrome(options: { tabs?: ChromeTab[]; focusedWindowId?: number } = {}) {
+export function makeFakeChrome(
+  options: {
+    tabs?: ChromeTab[];
+    focusedWindowId?: number;
+    /** Favicon data URL by page URL; a missing page has no favicon. */
+    favicons?: Record<string, string>;
+  } = {},
+) {
   const ports: FakePort[] = [];
-  const state = { tabs: options.tabs ?? [], focusedWindowId: options.focusedWindowId };
+  const state = {
+    tabs: options.tabs ?? [],
+    focusedWindowId: options.focusedWindowId,
+    favicons: options.favicons ?? {},
+  };
   const calls = {
     tabUpdates: [] as Array<readonly [number, { muted?: boolean; active?: boolean }]>,
     windowUpdates: [] as Array<readonly [number, { focused: boolean }]>,
+    faviconRequests: [] as string[],
   };
   const events = Effect.runSync(Queue.unbounded<TabEvent>());
   const findTab = (tabId: number) => {
@@ -80,6 +92,11 @@ export function makeFakeChrome(options: { tabs?: ChromeTab[]; focusedWindowId?: 
       focusWindow: (windowId) =>
         Effect.sync(() => {
           calls.windowUpdates.push([windowId, { focused: true }]);
+        }),
+      favicon: (pageUrl) =>
+        Effect.sync(() => {
+          calls.faviconRequests.push(pageUrl);
+          return state.favicons[pageUrl];
         }),
       lastFocusedWindowId: Effect.sync(() => state.focusedWindowId),
       tabEvents: Stream.fromQueue(events),

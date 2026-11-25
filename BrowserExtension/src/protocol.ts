@@ -23,6 +23,9 @@ export const Hello = Schema.Struct({
 });
 export const Ping = Schema.Struct({ v: Version, type: Schema.Literal("ping") });
 
+/** Longest favicon data URL the extension sends and the app accepts. */
+export const MAX_FAVICON_DATA_URL_LENGTH = 16 * 1024;
+
 /** A browser tab that makes sound or that the user muted. Optional fields can be added without a protocol bump. */
 export const Tab = Schema.Struct({
   id: Schema.Int,
