@@ -100,6 +100,7 @@ struct FineTuneApp: App {
             deviceVolumeMonitor: audioEngine.deviceVolumeMonitor as! DeviceVolumeMonitor,
             updateManager: updateManager,
             permission: audioEngine.permission,
+            browserBridge: browserBridge,
             accessibility: accessibility,
             mediaKeyStatus: mediaKeyStatus,
             popupVisibility: popupVisibility,

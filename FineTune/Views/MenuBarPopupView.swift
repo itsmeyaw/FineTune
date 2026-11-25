@@ -10,6 +10,9 @@ struct MenuBarPopupView: View {
 
     let permission: AudioRecordingPermission
 
+    /// Source of Tab Rows (tabs of connected Browsers).
+    let browserBridge: BrowserBridge
+
     /// Accessibility trust state — forwarded to the Settings window for the
     /// media-keys section. Bindable so live re-renders occur when trust flips.
     @Bindable var accessibility: AccessibilityPermissionService
@@ -178,6 +181,9 @@ struct MenuBarPopupView: View {
             }
         }
         .onChange(of: audioEngine.apps) { _, _ in
+            syncNavOrder()
+        }
+        .onChange(of: tabIDsByApp) { _, _ in
             syncNavOrder()
         }
         .onChange(of: isEditingDevicePriority) { _, editing in
@@ -923,7 +929,15 @@ struct MenuBarPopupView: View {
                 onEQToggle: {
                     toggleEQ(for: displayableApp.id, scrollProxy: scrollProxy)
                 },
-                isFocused: hasKeyboardEngaged && selectedRow == .app(persistenceID: displayableApp.id)
+                isFocused: hasKeyboardEngaged && selectedRow == .app(persistenceID: displayableApp.id),
+                browserTabs: tabItems(for: displayableApp),
+                focusedTab: focusedTabID,
+                onTabMuteChange: { item, muted in
+                    browserBridge.setMuted(item, to: muted)
+                },
+                onTabFocus: { item in
+                    browserBridge.focus(item)
+                }
             )
             .id(PopupKeyboardNavModel.RowID.app(persistenceID: displayableApp.id))
         }
@@ -1192,11 +1206,38 @@ struct MenuBarPopupView: View {
 
     // MARK: - Keyboard Navigation
 
+    /// Tab Rows shown under an App Row: only when the row is a Browser with a connected extension.
+    private func tabItems(for displayableApp: DisplayableApp) -> [BrowserTabStore.Item] {
+        guard case .active(let app) = displayableApp,
+              let bundleID = app.bundleID,
+              let browser = SupportedBrowser(bundleID: bundleID) else { return [] }
+        return browserBridge.tabs.items(for: browser)
+    }
+
+    private var tabIDsByApp: [String: [BrowserTabStore.Item.ID]] {
+        var result: [String: [BrowserTabStore.Item.ID]] = [:]
+        for displayableApp in audioEngine.displayableApps {
+            let items = tabItems(for: displayableApp)
+            if !items.isEmpty { result[displayableApp.id] = items.map(\.id) }
+        }
+        return result
+    }
+
+    private var focusedTabID: BrowserTabStore.Item.ID? {
+        guard hasKeyboardEngaged, case .tab(let id) = selectedRow else { return nil }
+        return id
+    }
+
+    private func tabItem(_ id: BrowserTabStore.Item.ID) -> BrowserTabStore.Item? {
+        audioEngine.displayableApps.lazy.flatMap(tabItems(for:)).first { $0.id == id }
+    }
+
     private func syncNavOrder() {
         let activeDevices = showingInputDevices ? sortedInputDevices : sortedDevices
         navModel.syncOrder(
             activeDevices: activeDevices,
             appPersistenceIDs: audioEngine.displayableApps.map(\.id),
+            tabIDsByApp: tabIDsByApp,
             isEditingPriority: isEditingDevicePriority
         )
     }
@@ -1353,6 +1394,8 @@ struct MenuBarPopupView: View {
                 deviceVolumeMonitor.setVolume(for: device.id, to: next)
             }
             return .handled
+        case .tab:
+            return .ignored
         }
     }
 
@@ -1406,6 +1449,10 @@ struct MenuBarPopupView: View {
                 deviceVolumeMonitor.setMute(for: device.id, to: !current)
             }
             return .handled
+        case .tab(let id):
+            guard let item = tabItem(id) else { return .ignored }
+            browserBridge.setMuted(item, to: !item.tab.isMuted)
+            return .handled
         }
     }
 
@@ -1430,6 +1477,11 @@ struct MenuBarPopupView: View {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                 expandedRowID = (expandedRowID == persistenceID) ? nil : persistenceID
             }
+            return .handled
+        case .tab(let id):
+            guard let item = tabItem(id) else { return .ignored }
+            browserBridge.focus(item)
+            NSApp.keyWindow?.resignKey()
             return .handled
         }
     }

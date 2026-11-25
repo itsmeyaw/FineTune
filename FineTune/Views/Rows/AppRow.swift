@@ -34,6 +34,10 @@ struct AppRow: View {
     let isEQExpanded: Bool
     let onEQToggle: () -> Void
     let isFocused: Bool
+    let browserTabs: [BrowserTabStore.Item]
+    let focusedTab: BrowserTabStore.Item.ID?
+    let onTabMuteChange: (BrowserTabStore.Item, Bool) -> Void
+    let onTabFocus: (BrowserTabStore.Item) -> Void
 
     @State private var isIconHovered = false
     @State private var localEQSettings: EQSettings
@@ -68,7 +72,11 @@ struct AppRow: View {
         onRenameUserPreset: @escaping (UUID, String) -> Void = { _, _ in },
         isEQExpanded: Bool = false,
         onEQToggle: @escaping () -> Void = {},
-        isFocused: Bool = false
+        isFocused: Bool = false,
+        browserTabs: [BrowserTabStore.Item] = [],
+        focusedTab: BrowserTabStore.Item.ID? = nil,
+        onTabMuteChange: @escaping (BrowserTabStore.Item, Bool) -> Void = { _, _ in },
+        onTabFocus: @escaping (BrowserTabStore.Item) -> Void = { _ in }
     ) {
         self.app = app
         self.volume = volume
@@ -100,11 +108,31 @@ struct AppRow: View {
         self.isEQExpanded = isEQExpanded
         self.onEQToggle = onEQToggle
         self.isFocused = isFocused
+        self.browserTabs = browserTabs
+        self.focusedTab = focusedTab
+        self.onTabMuteChange = onTabMuteChange
+        self.onTabFocus = onTabFocus
         // Initialize local EQ state for reactive UI updates
         self._localEQSettings = State(initialValue: eqSettings)
     }
 
     var body: some View {
+        VStack(spacing: 0) {
+            appRow
+            ForEach(browserTabs) { item in
+                BrowserTabRow(
+                    tab: item.tab,
+                    isBrowserMuted: isMutedExternal,
+                    isFocused: focusedTab == item.id,
+                    onMuteChange: { onTabMuteChange(item, $0) },
+                    onFocus: { onTabFocus(item) }
+                )
+                .id(PopupKeyboardNavModel.RowID.tab(item.id))
+            }
+        }
+    }
+
+    private var appRow: some View {
         ExpandableGlassRow(isExpanded: isEQExpanded, isFocused: isFocused) {
             // Header: Main row content (always visible)
             HStack(spacing: DesignTokens.Spacing.sm) {
