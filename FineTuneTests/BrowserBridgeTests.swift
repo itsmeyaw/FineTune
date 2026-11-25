@@ -30,9 +30,10 @@ private final class SocketClient {
     }
 
     /// Polls without blocking so the main actor stays free to process the server's events.
-    func receive(timeout: TimeInterval = 3) async throws -> BrowserMessage? {
+    func receive(timeout: TimeInterval = 10) async throws -> BrowserMessage? {
         let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
+        // Poll before checking the deadline: a stalled main actor must not turn buffered data into a timeout.
+        while true {
             if !pending.isEmpty { return pending.removeFirst() }
             var pollFD = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
             if poll(&pollFD, 1, 0) > 0 {
@@ -43,9 +44,9 @@ private final class SocketClient {
                 pending += try reader.append(bytes.prefix(count)).map { try BrowserMessage(decoding: $0) }
                 continue
             }
+            if Date() >= deadline { return nil }
             try await Task.sleep(for: .milliseconds(10))
         }
-        return nil
     }
 
     func close() { Darwin.close(fd) }
