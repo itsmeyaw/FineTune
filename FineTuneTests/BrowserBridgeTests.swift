@@ -7,6 +7,7 @@ import Foundation
 private final class SocketClient {
     let fd: Int32
     private var reader = NativeMessagingFrameReader()
+    private var pending: [BrowserMessage] = []
 
     init(path: String) throws {
         fd = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -32,12 +33,15 @@ private final class SocketClient {
     func receive(timeout: TimeInterval = 3) async throws -> BrowserMessage? {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
+            if !pending.isEmpty { return pending.removeFirst() }
             var pollFD = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
             if poll(&pollFD, 1, 0) > 0 {
                 var bytes = [UInt8](repeating: 0, count: 4096)
                 let count = read(fd, &bytes, bytes.count)
                 guard count > 0 else { return nil }
-                return try reader.append(bytes.prefix(count)).first.map { try BrowserMessage(decoding: $0) }
+                // A read can end mid-frame or carry several frames; keep the extras for the next call.
+                pending += try reader.append(bytes.prefix(count)).map { try BrowserMessage(decoding: $0) }
+                continue
             }
             try await Task.sleep(for: .milliseconds(10))
         }
