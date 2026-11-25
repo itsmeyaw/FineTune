@@ -92,6 +92,12 @@ final class BrowserTabStore {
         connections[connection] = state
     }
 
+    /// Shows a Tab Volume the user just set, before the extension reports it back.
+    func setVolume(_ volume: Double, tabID: Int, connection: UUID) {
+        guard connections[connection]?.entries[tabID] != nil else { return }
+        connections[connection]?.entries[tabID]?.tab.volume = min(1, max(0, volume))
+    }
+
     /// Drops Tabs whose grace period is over.
     func prune() {
         let current = now()

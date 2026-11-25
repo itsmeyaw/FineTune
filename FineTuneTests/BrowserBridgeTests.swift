@@ -294,6 +294,9 @@ struct BrowserBridgeTests {
         #expect(try await client.receive() == .setMuted(tabID: 9, muted: true))
         bridge.focus(item)
         #expect(try await client.receive() == .focus(tabID: 9))
+        bridge.setVolume(item, to: 0.25)
+        #expect(try await client.receive() == .setVolume(tabID: 9, volume: 0.25))
+        #expect(bridge.tabs.items(for: .chrome).first?.tab.volume == 0.25)
     }
 
     @Test("A Tab that stops being audible disappears once its grace period ends")

@@ -37,6 +37,7 @@ struct AppRow: View {
     let browserTabs: [BrowserTabStore.Item]
     let focusedTab: BrowserTabStore.Item.ID?
     let onTabMuteChange: (BrowserTabStore.Item, Bool) -> Void
+    let onTabVolumeChange: (BrowserTabStore.Item, Double) -> Void
     let onTabFocus: (BrowserTabStore.Item) -> Void
 
     @State private var isIconHovered = false
@@ -76,6 +77,7 @@ struct AppRow: View {
         browserTabs: [BrowserTabStore.Item] = [],
         focusedTab: BrowserTabStore.Item.ID? = nil,
         onTabMuteChange: @escaping (BrowserTabStore.Item, Bool) -> Void = { _, _ in },
+        onTabVolumeChange: @escaping (BrowserTabStore.Item, Double) -> Void = { _, _ in },
         onTabFocus: @escaping (BrowserTabStore.Item) -> Void = { _ in }
     ) {
         self.app = app
@@ -111,6 +113,7 @@ struct AppRow: View {
         self.browserTabs = browserTabs
         self.focusedTab = focusedTab
         self.onTabMuteChange = onTabMuteChange
+        self.onTabVolumeChange = onTabVolumeChange
         self.onTabFocus = onTabFocus
         // Initialize local EQ state for reactive UI updates
         self._localEQSettings = State(initialValue: eqSettings)
@@ -125,6 +128,7 @@ struct AppRow: View {
                     isBrowserMuted: isMutedExternal,
                     isFocused: focusedTab == item.id,
                     onMuteChange: { onTabMuteChange(item, $0) },
+                    onVolumeChange: { onTabVolumeChange(item, $0) },
                     onFocus: { onTabFocus(item) }
                 )
                 .id(PopupKeyboardNavModel.RowID.tab(item.id))

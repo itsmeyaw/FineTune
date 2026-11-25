@@ -34,6 +34,10 @@ export const Tab = Schema.Struct({
   favicon: Schema.optionalKey(Schema.String),
   muted: Schema.Boolean,
   windowFocused: Schema.Boolean,
+  /** Tab Volume, 0…1. Receivers treat a missing one as 1. */
+  volume: Schema.optionalKey(Schema.Finite),
+  /** False on pages the extension can't run in; receivers treat a missing one as false. */
+  volumeSupported: Schema.optionalKey(Schema.Boolean),
 });
 export type Tab = typeof Tab.Type;
 
@@ -101,13 +105,20 @@ export const Focus = Schema.Struct({
   tabId: Schema.Int,
 });
 
-/** What the app asks the extension to do with a tab. */
-export type Command = typeof SetMuted.Type | typeof Focus.Type;
-export const isCommand = (message: InboundMessage): message is Command =>
-  message.type === "setMuted" || message.type === "focus";
+export const SetVolume = Schema.Struct({
+  v: Version,
+  type: Schema.Literal("setVolume"),
+  tabId: Schema.Int,
+  volume: Schema.Finite.check(Schema.isBetween({ minimum: 0, maximum: 1 })),
+});
 
-const KnownInbound = Schema.Union([Pong, SetMuted, Focus]);
-const KNOWN_TYPES: ReadonlySet<string> = new Set(["pong", "setMuted", "focus"]);
+/** What the app asks the extension to do with a tab. */
+export type Command = typeof SetMuted.Type | typeof Focus.Type | typeof SetVolume.Type;
+export const isCommand = (message: InboundMessage): message is Command =>
+  message.type === "setMuted" || message.type === "focus" || message.type === "setVolume";
+
+const KnownInbound = Schema.Union([Pong, SetMuted, Focus, SetVolume]);
+const KNOWN_TYPES: ReadonlySet<string> = new Set(["pong", "setMuted", "focus", "setVolume"]);
 
 export type InboundMessage =
   | typeof KnownInbound.Type

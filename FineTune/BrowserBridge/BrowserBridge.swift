@@ -99,6 +99,11 @@ final class BrowserBridge {
         server?.send(.setMuted(tabID: item.tab.id, muted: muted), to: item.connection)
     }
 
+    func setVolume(_ item: BrowserTabStore.Item, to volume: Double) {
+        tabs.setVolume(volume, tabID: item.tab.id, connection: item.connection)
+        server?.send(.setVolume(tabID: item.tab.id, volume: volume), to: item.connection)
+    }
+
     /// Brings the Tab to the front in its Browser.
     func focus(_ item: BrowserTabStore.Item) {
         server?.send(.focus(tabID: item.tab.id), to: item.connection)
@@ -135,7 +140,7 @@ final class BrowserBridge {
             case .tabs, .tabUpdated, .tabRemoved:
                 tabs.apply(message, connection: id)
                 schedulePrune()
-            case .pong, .setMuted, .focus, .unknown:
+            case .pong, .setMuted, .focus, .setVolume, .unknown:
                 break
             }
         case let .closed(id):

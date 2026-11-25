@@ -1,8 +1,8 @@
-// Mirrors the browser's audible and muted tabs to the app, and runs the app's mute/focus commands.
+// Mirrors the browser's audible and muted tabs to the app, and runs the app's mute/focus/volume commands.
 import { Effect, Layer, Ref, Stream } from "effect";
 import { Bridge } from "./bridge.ts";
 import { Chrome } from "./chrome.ts";
-import type { ChromeTab, TabEvent } from "./chrome.ts";
+import type { ChromeTab, TabEvent, VolumeRequest } from "./chrome.ts";
 import {
   MAX_FAVICON_DATA_URL_LENGTH,
   tabRemovedMessage,
@@ -35,6 +35,7 @@ export function tabInfo(
   tab: ChromeTab,
   focusedWindowId: number | undefined,
   favicon: string | undefined,
+  volume: { readonly level: number; readonly supported: boolean },
 ): Tab {
   return {
     id: tab.id,
@@ -43,6 +44,8 @@ export function tabInfo(
     ...(favicon === undefined ? {} : { favicon }),
     muted: tab.mutedInfo?.muted === true,
     windowFocused: tab.windowId === focusedWindowId,
+    volume: volume.level,
+    volumeSupported: volume.supported,
   };
 }
 
@@ -51,6 +54,8 @@ const RELEVANT_CHANGES = ["audible", "mutedInfo", "title", "favIconUrl", "url"];
 
 type Input =
   | { readonly kind: "connected" }
+  | { readonly kind: "disconnected" }
+  | { readonly kind: "volumeRequest"; readonly request: VolumeRequest }
   | { readonly kind: "command"; readonly command: Command }
   | { readonly kind: "tab"; readonly event: TabEvent };
 
@@ -85,16 +90,55 @@ export const TabReporter = {
         return found;
       });
 
-      const describe = (tab: ChromeTab, focused: number | undefined) =>
-        faviconOf(tab).pipe(Effect.map((favicon) => tabInfo(tab, focused, favicon)));
+      /** Tab Volume of tabs below 100%. Lives as long as the tab and the connection to the app. */
+      const volumes = new Map<number, number>();
+      /** Whether content scripts could be put into the tab's page, per URL: chrome:// pages, the Web Store and the PDF viewer refuse. */
+      const scriptable = new Map<
+        number,
+        { readonly url: string | undefined; readonly ok: boolean }
+      >();
+
+      const supports = Effect.fn("TabReporter.supports")(function* (tab: ChromeTab) {
+        const known = scriptable.get(tab.id);
+        if (known && known.url === tab.url) return known.ok;
+        const ok = yield* chrome.injectContentScripts(tab.id).pipe(
+          Effect.as(true),
+          Effect.catchTag("ChromeError", () => Effect.succeed(false)),
+        );
+        scriptable.set(tab.id, { url: tab.url, ok });
+        return ok;
+      });
+
+      const infoOf = Effect.fn("TabReporter.infoOf")(function* (
+        tab: ChromeTab,
+        focused: number | undefined,
+      ) {
+        return tabInfo(tab, focused, yield* faviconOf(tab), {
+          level: volumes.get(tab.id) ?? 1,
+          supported: yield* supports(tab),
+        });
+      });
+
+      const tellTab = (tabId: number, volume: number) =>
+        chrome.sendTabVolume(tabId, volume).pipe(Effect.ignore);
+
+      /** Gets the content scripts into the tab and brings its page to the volume it should have. */
+      const prepare = (tab: ChromeTab) =>
+        supports(tab).pipe(
+          Effect.flatMap((ok) => (ok ? tellTab(tab.id, volumes.get(tab.id) ?? 1) : Effect.void)),
+        );
 
       const sendSnapshot = Effect.fn("TabReporter.sendSnapshot")(function* (
         knownFocusedWindowId?: number,
       ) {
         const focused = knownFocusedWindowId ?? (yield* chrome.lastFocusedWindowId);
         yield* Ref.set(focusedWindow, focused);
-        const tabs = yield* Effect.forEach((yield* chrome.queryTabs).filter(isReportable), (tab) =>
-          describe(tab, focused),
+        const all = yield* chrome.queryTabs;
+        yield* Effect.forEach(all, prepare, { concurrency: 8, discard: true });
+        const tabs = yield* Effect.forEach(
+          all.filter(isReportable),
+          (tab) => infoOf(tab, focused),
+          { concurrency: 8 },
         );
         reported.clear();
         for (const tab of tabs) reported.set(tab.id, JSON.stringify(tab));
@@ -106,6 +150,8 @@ export const TabReporter = {
           return yield* sendSnapshot(event.windowId);
         }
         if (event.kind === "removed") {
+          volumes.delete(event.tabId);
+          scriptable.delete(event.tabId);
           return reported.delete(event.tabId)
             ? yield* bridge.send(tabRemovedMessage(event.tabId, true))
             : undefined;
@@ -116,17 +162,42 @@ export const TabReporter = {
             ? yield* bridge.send(tabRemovedMessage(event.tabId, false))
             : undefined;
         }
-        const info = yield* describe(event.tab, yield* Ref.get(focusedWindow));
+        return yield* report(event.tab);
+      });
+
+      /** Sends the tab to the app unless the app already has exactly this. */
+      const report = Effect.fn("TabReporter.report")(function* (tab: ChromeTab) {
+        const info = yield* infoOf(tab, yield* Ref.get(focusedWindow));
         const serialized = JSON.stringify(info);
-        if (reported.get(event.tabId) === serialized) return undefined;
-        reported.set(event.tabId, serialized);
+        if (reported.get(tab.id) === serialized) return undefined;
+        reported.set(tab.id, serialized);
         return yield* bridge.send(tabUpdatedMessage(info));
+      });
+
+      const setVolume = Effect.fn("TabReporter.setVolume")(function* (
+        tabId: number,
+        level: number,
+      ) {
+        const tab = yield* chrome.getTab(tabId);
+        if (!(yield* supports(tab))) return;
+        if (level === 1) volumes.delete(tabId);
+        else volumes.set(tabId, level);
+        yield* chrome.sendTabVolume(tabId, level);
+        if (reported.has(tabId)) yield* report(tab);
+      });
+
+      // Pages are put back to 100% when the app goes away; their mute is not touched.
+      const resetVolumes = Effect.fn("TabReporter.resetVolumes")(function* () {
+        const lowered = [...volumes.keys()];
+        volumes.clear();
+        yield* Effect.forEach(lowered, (tabId) => tellTab(tabId, 1), { discard: true });
       });
 
       const runCommand = Effect.fn("TabReporter.runCommand")(function* (command: Command) {
         if (command.type === "setMuted") {
           return yield* chrome.setTabMuted(command.tabId, command.muted);
         }
+        if (command.type === "setVolume") return yield* setVolume(command.tabId, command.volume);
         const tab = yield* chrome.getTab(command.tabId);
         yield* chrome.activateTab(command.tabId);
         return yield* chrome.focusWindow(tab.windowId);
@@ -135,14 +206,22 @@ export const TabReporter = {
       const handle = (input: Input) =>
         input.kind === "connected"
           ? sendSnapshot()
-          : input.kind === "command"
-            ? runCommand(input.command)
-            : onTabEvent(input.event);
+          : input.kind === "disconnected"
+            ? resetVolumes()
+            : input.kind === "command"
+              ? runCommand(input.command)
+              : input.kind === "volumeRequest"
+                ? Effect.sync(() => input.request.respond(volumes.get(input.request.tabId) ?? 1))
+                : onTabEvent(input.event);
 
       // One reader keeps snapshots, events and commands from interleaving.
       yield* Stream.mergeAll(
         [
           bridge.connected.pipe(Stream.map((): Input => ({ kind: "connected" }))),
+          bridge.disconnected.pipe(Stream.map((): Input => ({ kind: "disconnected" }))),
+          chrome.volumeRequests.pipe(
+            Stream.map((request): Input => ({ kind: "volumeRequest", request })),
+          ),
           bridge.commands.pipe(Stream.map((command): Input => ({ kind: "command", command }))),
           chrome.tabEvents.pipe(Stream.map((event): Input => ({ kind: "tab", event }))),
         ],

@@ -166,4 +166,39 @@ struct BrowserTabStoreTests {
         store.apply(.tabUpdated(tab(1)), connection: a)
         #expect(ids(store, .chrome).isEmpty)
     }
+
+    @Test("Setting a Tab's volume shows at once and is replaced by what the extension reports next")
+    func volumeIsOptimistic() {
+        let store = makeStore()
+        store.open(connection: a, browser: .chrome)
+        store.apply(.tabUpdated(tab(1)), connection: a)
+        store.setVolume(0.3, tabID: 1, connection: a)
+        #expect(store.items(for: .chrome).first?.tab.volume == 0.3)
+        store.apply(.tabUpdated(BrowserTab(id: 1, title: "T", site: "a.com", favicon: nil, isMuted: false, isWindowFocused: false, volume: 0.25, isVolumeSupported: true)), connection: a)
+        #expect(store.items(for: .chrome).first?.tab.volume == 0.25)
+    }
+
+    @Test("A volume for a Tab or connection that isn't listed is ignored")
+    func volumeOfUnknownTab() {
+        let store = makeStore()
+        store.open(connection: a, browser: .chrome)
+        store.apply(.tabUpdated(tab(1)), connection: a)
+        store.setVolume(0.3, tabID: 2, connection: a)
+        store.setVolume(0.3, tabID: 1, connection: b)
+        #expect(store.items(for: .chrome).map(\.tab.volume) == [1])
+    }
+
+    @Test("Tab Volume doesn't outlive the connection: a new connection starts from what it reports")
+    func volumeResetsOnDisconnect() {
+        let store = makeStore()
+        store.open(connection: a, browser: .chrome)
+        store.apply(.tabUpdated(tab(1)), connection: a)
+        store.setVolume(0.3, tabID: 1, connection: a)
+        store.close(connection: a)
+        #expect(ids(store, .chrome).isEmpty)
+
+        store.open(connection: a, browser: .chrome)
+        store.apply(.tabs([tab(1)]), connection: a)
+        #expect(store.items(for: .chrome).first?.tab.volume == 1)
+    }
 }

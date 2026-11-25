@@ -59,6 +59,8 @@ struct BrowserMessageTests {
             #"{"v":1,"type":"tabRemoved","tabId":1}"#,
             #"{"v":1,"type":"setMuted","tabId":1}"#,
             #"{"v":1,"type":"focus"}"#,
+            #"{"v":1,"type":"setVolume","tabId":1}"#,
+            #"{"v":1,"type":"tabUpdated","tab":{"id":1,"title":"","site":"","muted":false,"windowFocused":false,"volume":"loud"}}"#,
         ]
     )
     func malformed(input: String) {
@@ -76,6 +78,8 @@ struct BrowserMessageTests {
             .tabRemoved(tabID: 3, closed: true),
             .setMuted(tabID: 4, muted: true),
             .focus(tabID: 5),
+            .setVolume(tabID: 6, volume: 0.25),
+            .tabUpdated(BrowserTab(id: 7, title: "", site: "a.com", favicon: nil, isMuted: false, isWindowFocused: false, volume: 0.5, isVolumeSupported: true)),
         ]
         for message in messages {
             let data = message.encoded()
@@ -99,6 +103,30 @@ struct BrowserMessageTests {
         ]))
     }
 
+    @Test("A Tab without volume fields has full volume and can't change it")
+    func tabWithoutVolumeFields() throws {
+        let message = try BrowserMessage(decoding: json("""
+            {"v":1,"type":"tabUpdated","tab":{"id":1,"title":"","site":"","muted":false,"windowFocused":false}}
+            """))
+        guard case let .tabUpdated(tab) = message else { Issue.record("not tabUpdated"); return }
+        #expect(tab.volume == 1)
+        #expect(tab.isVolumeSupported == false)
+    }
+
+    @Test("Decodes a Tab's volume and clamps it into 0...1")
+    func tabVolumeFields() throws {
+        func volume(_ raw: String) throws -> Double? {
+            let message = try BrowserMessage(decoding: json("""
+                {"v":1,"type":"tabUpdated","tab":{"id":1,"title":"","site":"","muted":false,"windowFocused":false,"volume":\(raw),"volumeSupported":true}}
+                """))
+            guard case let .tabUpdated(tab) = message else { return nil }
+            return tab.volume
+        }
+        #expect(try volume("0.4") == 0.4)
+        #expect(try volume("7") == 1)
+        #expect(try volume("-1") == 0)
+    }
+
     @Test("Decodes tab removal")
     func decodeTabRemoved() throws {
         #expect(try BrowserMessage(decoding: json(#"{"v":1,"type":"tabRemoved","tabId":3,"closed":true}"#)) == .tabRemoved(tabID: 3, closed: true))
@@ -111,6 +139,12 @@ struct BrowserMessageTests {
             == #"{"muted":true,"tabId":4,"type":"setMuted","v":1}"#)
         #expect(String(decoding: BrowserMessage.focus(tabID: 5).encoded(), as: UTF8.self)
             == #"{"tabId":5,"type":"focus","v":1}"#)
+    }
+
+    @Test("setVolume encodes to the documented wire form")
+    func setVolumeWireForm() {
+        #expect(String(decoding: BrowserMessage.setVolume(tabID: 4, volume: 0.25).encoded(), as: UTF8.self)
+            == #"{"tabId":4,"type":"setVolume","v":1,"volume":0.25}"#)
     }
 
     @Test("Pong encodes to the documented wire form")

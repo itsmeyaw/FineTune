@@ -41,32 +41,36 @@ Other fields depend on `type`.
 A **Tab** is a browser tab that is `audible` or muted (`mutedInfo.muted`). The extension reports only those.
 It sends a full `tabs` snapshot right after `hello`/`ping` on every connection, then incremental updates.
 
-| type         | direction       | fields                       | meaning                                                                                                                                                                                 |
-| ------------ | --------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tabs`       | extension → app | `tabs: [Tab]`                | Full snapshot. Replaces every Tab previously reported on this connection.                                                                                                               |
-| `tabUpdated` | extension → app | `tab: Tab`                   | A Tab appeared or one of its fields changed.                                                                                                                                            |
-| `tabRemoved` | extension → app | `tabId: int`, `closed: bool` | The tab is no longer reportable. `closed` is `true` when the tab was closed and `false` when it stopped being audible (and isn't muted). The app keeps a not-closed Tab listed for 5 s. |
-| `setMuted`   | app → extension | `tabId: int`, `muted: bool`  | Mute or unmute the tab (`chrome.tabs.update`). The extension answers through the normal `tabUpdated`.                                                                                   |
-| `focus`      | app → extension | `tabId: int`                 | Activate the tab and focus its window.                                                                                                                                                  |
+| type         | direction       | fields                         | meaning                                                                                                                                                                                                                     |
+| ------------ | --------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tabs`       | extension → app | `tabs: [Tab]`                  | Full snapshot. Replaces every Tab previously reported on this connection.                                                                                                                                                   |
+| `tabUpdated` | extension → app | `tab: Tab`                     | A Tab appeared or one of its fields changed.                                                                                                                                                                                |
+| `tabRemoved` | extension → app | `tabId: int`, `closed: bool`   | The tab is no longer reportable. `closed` is `true` when the tab was closed and `false` when it stopped being audible (and isn't muted). The app keeps a not-closed Tab listed for 5 s.                                     |
+| `setMuted`   | app → extension | `tabId: int`, `muted: bool`    | Mute or unmute the tab (`chrome.tabs.update`). The extension answers through the normal `tabUpdated`.                                                                                                                       |
+| `focus`      | app → extension | `tabId: int`                   | Activate the tab and focus its window.                                                                                                                                                                                      |
+| `setVolume`  | app → extension | `tabId: int`, `volume: number` | Set the Tab Volume, `0…1` (it only lowers; there is no boost). Values outside the range make the message malformed. Ignored for a tab with `volumeSupported: false`. The extension answers through the normal `tabUpdated`. |
 
 `Tab`:
 
-| field           | type    | notes                                                                                                                      |
-| --------------- | ------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `id`            | int     | Browser tab id. Unique within one browser session; the app also keys by connection.                                        |
-| `title`         | string  | May be empty.                                                                                                              |
-| `site`          | string  | Hostname of the tab URL (`www.youtube.com`); empty when the URL has none.                                                  |
-| `favicon`       | string? | PNG `data:image/png;base64,` URL, at most 16 KiB. Never a remote URL: the app ignores anything else. Omitted when unknown. |
-| `muted`         | bool    | `mutedInfo.muted`.                                                                                                         |
-| `windowFocused` | bool    | The tab's window is the browser's last focused window.                                                                     |
+| field             | type    | notes                                                                                                                                                             |
+| ----------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`              | int     | Browser tab id. Unique within one browser session; the app also keys by connection.                                                                               |
+| `title`           | string  | May be empty.                                                                                                                                                     |
+| `site`            | string  | Hostname of the tab URL (`www.youtube.com`); empty when the URL has none.                                                                                         |
+| `favicon`         | string? | PNG `data:image/png;base64,` URL, at most 16 KiB. Never a remote URL: the app ignores anything else. Omitted when unknown.                                        |
+| `muted`           | bool    | `mutedInfo.muted`.                                                                                                                                                |
+| `windowFocused`   | bool    | The tab's window is the browser's last focused window.                                                                                                            |
+| `volume`          | number? | Tab Volume, `0…1`. Omitted means `1`; the extension always sends it.                                                                                              |
+| `volumeSupported` | bool?   | `false` when the page can't be scripted (`chrome://`, the Web Store, the PDF viewer): the volume can't be changed there, mute still works. Omitted means `false`. |
 
-Optional fields can be added to `Tab` without a protocol bump. Tab Volume will add `volume` and `volumeSupported`.
+Optional fields can be added to `Tab` without a protocol bump; `volume` and `volumeSupported` were added that way.
 
 ```json
 {"v":1,"type":"tabs","tabs":[{"id":12,"title":"Song","site":"www.youtube.com","favicon":"data:image/png;base64,iVBORw0KGgo=","muted":false,"windowFocused":true}]}
 {"v":1,"type":"tabRemoved","tabId":12,"closed":false}
 {"v":1,"type":"setMuted","tabId":12,"muted":true}
 {"v":1,"type":"focus","tabId":12}
+{"v":1,"type":"setVolume","tabId":12,"volume":0.4}
 ```
 
 One extension instance runs per browser profile, so a Browser with several profiles opens several connections.
@@ -80,7 +84,26 @@ The app merges their Tabs into one flat list. A connection's Tabs are cleared wh
 - **Different `v`**: the message is dropped, and the connection stays open. Bump `v` only for a change that
   existing receivers can't safely ignore; new optional fields and new types don't need a bump.
 - **Malformed message** (not an object, missing/ill-typed `v` or `type`, or missing required fields of a known type): dropped.
-- A planned slice adds a `setVolume` command (app → extension) in this same envelope.
+
+## Tab Volume
+
+The extension scales the audio of the page itself, so FineTune's own processing (the Browser's App Row volume,
+EQ) still applies to the Browser's combined stream: a tab's loudness is App Row volume × Tab Volume.
+
+- Two content scripts are declared in `manifest.json` for every frame (`all_frames`, `match_about_blank`,
+  `document_start`) and are injected with `chrome.scripting` into tabs that were already open when the extension connected.
+  - `main-world.js` (page's main world) scales `HTMLMediaElement`s (`volume` becomes `site volume × tab volume`; the page
+    still reads and writes its own value) and Web Audio (anything connected to an `AudioContext` destination goes
+    through a master `GainNode`). It sees elements from `new Audio()`, shadow roots and ones added later.
+  - `isolated-world.js` relays: it asks the service worker for the tab's volume when a frame starts and listens for
+    `chrome.tabs.sendMessage` pushes, then hands the number to the main world with a `finetune:volume` window event.
+    The main world can't use `chrome.*`, so this is the only path in; a push reaches every frame of the tab, embedded ones included.
+- Tab Volume lives in the service worker and only as long as the tab and the connection. When the native connection
+  drops (FineTune quits or crashes) the extension sets every lowered tab back to 1; mute is not touched.
+- `volumeSupported` is `false` when injecting into the tab fails.
+
+Known gaps: an `AudioContext` created, or a `connect()` to its destination made, before the script was injected into an
+already-open tab is not scaled; audio that is not a media element or Web Audio (`speechSynthesis`) is not scaled.
 
 ## Known limits
 
@@ -114,5 +137,5 @@ pnpm install --frozen-lockfile
 pnpm run lint && pnpm run format:check && pnpm run typecheck && pnpm test && pnpm run build
 ```
 
-`pnpm run build` writes the loadable extension to `BrowserExtension/dist/` (service worker bundle plus
-`manifest.json` with the pinned `key`). Load unpacked means loading `dist`, not `BrowserExtension`.
+`pnpm run build` writes the loadable extension to `BrowserExtension/dist/` (service worker bundle, the two content scripts
+and `manifest.json` with the pinned `key`). Load unpacked means loading `dist`, not `BrowserExtension`.
