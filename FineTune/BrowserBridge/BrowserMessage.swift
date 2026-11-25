@@ -19,6 +19,8 @@ enum BrowserMessage: Equatable {
     case tabRemoved(tabID: Int, closed: Bool)
     case setMuted(tabID: Int, muted: Bool)
     case focus(tabID: Int)
+    /// Sets the Tab Volume, 0...1.
+    case setVolume(tabID: Int, volume: Double)
     /// A well-formed message of a type this build doesn't know. Ignored by receivers.
     case unknown(type: String)
 
@@ -67,6 +69,11 @@ enum BrowserMessage: Equatable {
         case "focus":
             guard let tabID = object["tabId"] as? Int else { throw BrowserMessageError.malformed }
             self = .focus(tabID: tabID)
+        case "setVolume":
+            guard let tabID = object["tabId"] as? Int, let volume = object["volume"] as? Double else {
+                throw BrowserMessageError.malformed
+            }
+            self = .setVolume(tabID: tabID, volume: min(1, max(0, volume)))
         default:
             self = .unknown(type: type)
         }
@@ -100,6 +107,10 @@ enum BrowserMessage: Equatable {
         case let .focus(tabID):
             object["type"] = "focus"
             object["tabId"] = tabID
+        case let .setVolume(tabID, volume):
+            object["type"] = "setVolume"
+            object["tabId"] = tabID
+            object["volume"] = volume
         case let .unknown(type):
             object["type"] = type
         }
