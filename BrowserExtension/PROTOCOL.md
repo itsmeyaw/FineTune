@@ -64,7 +64,12 @@ write them as hex, and map the digits `0-9a-f` to `a-p`.
 
 ## Build and test
 
-TypeScript, built with Vite, linted with oxlint, formatted with oxfmt. Uses pnpm (see `packageManager` in `package.json`).
+TypeScript on Effect, built with Vite, linted with oxlint (type-aware, with the Effect rules from `@effect/tsgo`),
+formatted with oxfmt. Uses pnpm (see `packageManager` in `package.json`).
+
+`pnpm install` runs `effect-tsgo patch --oxlint` (the `prepare` script), which patches the installed TypeScript 7
+and oxlint binaries in `node_modules`. `@effect/tsgo`, `oxlint`, `oxlint-tsgolint` and `typescript` are pinned to exact
+versions from the supported matrix of that `@effect/tsgo` release; bump them together.
 
 ```
 cd BrowserExtension

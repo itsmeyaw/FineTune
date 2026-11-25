@@ -1,0 +1,2 @@
+# effect-tsgo patches binaries in node_modules; copy keeps pnpm's shared store (hardlinks on Linux) untouched.
+packageImportMethod: copy
