@@ -37,6 +37,7 @@ struct AppRowWithLevelPolling: View {
     let browserTabs: [BrowserTabStore.Item]
     let focusedTab: BrowserTabStore.Item.ID?
     let onTabMuteChange: (BrowserTabStore.Item, Bool) -> Void
+    let onTabVolumeChange: (BrowserTabStore.Item, Double) -> Void
     let onTabFocus: (BrowserTabStore.Item) -> Void
 
     @State private var displayLevel: Float = 0
@@ -77,6 +78,7 @@ struct AppRowWithLevelPolling: View {
         browserTabs: [BrowserTabStore.Item] = [],
         focusedTab: BrowserTabStore.Item.ID? = nil,
         onTabMuteChange: @escaping (BrowserTabStore.Item, Bool) -> Void = { _, _ in },
+        onTabVolumeChange: @escaping (BrowserTabStore.Item, Double) -> Void = { _, _ in },
         onTabFocus: @escaping (BrowserTabStore.Item) -> Void = { _ in }
     ) {
         self.app = app
@@ -113,6 +115,7 @@ struct AppRowWithLevelPolling: View {
         self.browserTabs = browserTabs
         self.focusedTab = focusedTab
         self.onTabMuteChange = onTabMuteChange
+        self.onTabVolumeChange = onTabVolumeChange
         self.onTabFocus = onTabFocus
     }
 
@@ -151,6 +154,7 @@ struct AppRowWithLevelPolling: View {
             browserTabs: browserTabs,
             focusedTab: focusedTab,
             onTabMuteChange: onTabMuteChange,
+            onTabVolumeChange: onTabVolumeChange,
             onTabFocus: onTabFocus
         )
         .onAppear {

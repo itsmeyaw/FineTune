@@ -935,6 +935,9 @@ struct MenuBarPopupView: View {
                 onTabMuteChange: { item, muted in
                     browserBridge.setMuted(item, to: muted)
                 },
+                onTabVolumeChange: { item, volume in
+                    browserBridge.setVolume(item, to: volume)
+                },
                 onTabFocus: { item in
                     browserBridge.focus(item)
                 }
