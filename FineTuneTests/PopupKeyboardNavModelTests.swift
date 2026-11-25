@@ -29,6 +29,28 @@ struct PopupKeyboardNavModelTests {
         ])
     }
 
+    @Test func syncOrderPlacesTabRowsRightAfterTheirApp() {
+        let model = PopupKeyboardNavModel()
+        let connection = UUID()
+        let tab1 = BrowserTabStore.Item.ID(connection: connection, tabID: 1)
+        let tab2 = BrowserTabStore.Item.ID(connection: connection, tabID: 2)
+        model.syncOrder(
+            activeDevices: [makeDevice(uid: "dev1")],
+            appPersistenceIDs: ["com.browser", "com.other"],
+            tabIDsByApp: ["com.browser": [tab1, tab2]],
+            isEditingPriority: false
+        )
+        #expect(model.orderedRowIDs == [
+            .device(uid: "dev1"),
+            .app(persistenceID: "com.browser"),
+            .tab(tab1),
+            .tab(tab2),
+            .app(persistenceID: "com.other"),
+        ])
+        #expect(model.next(after: .tab(tab2)) == .app(persistenceID: "com.other"))
+        #expect(model.previous(before: .tab(tab1)) == .app(persistenceID: "com.browser"))
+    }
+
     @Test func syncOrderEditingPriorityClearsList() {
         let model = PopupKeyboardNavModel()
         let dev1 = makeDevice(uid: "dev1")
