@@ -6,6 +6,7 @@ struct SettingsRootView: View {
     @Bindable var settings: SettingsManager
     @Bindable var audioEngine: AudioEngine
     @Bindable var deviceVolumeMonitor: DeviceVolumeMonitor
+    let browserBridge: BrowserBridge
     @Bindable var accessibility: AccessibilityPermissionService
     @Bindable var mediaKeyStatus: MediaKeyStatus
     let mediaKeyMonitor: MediaKeyMonitor
@@ -34,7 +35,8 @@ struct SettingsRootView: View {
             AudioTab(
                 settings: settings,
                 audioEngine: audioEngine,
-                deviceVolumeMonitor: deviceVolumeMonitor
+                deviceVolumeMonitor: deviceVolumeMonitor,
+                browserBridge: browserBridge
             )
             .tabItem { Label("Audio", systemImage: "speaker.wave.2") }
             .tag(Section.audio)

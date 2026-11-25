@@ -6,6 +6,7 @@ struct AudioTab: View {
     @Bindable var settings: SettingsManager
     @Bindable var audioEngine: AudioEngine
     @Bindable var deviceVolumeMonitor: DeviceVolumeMonitor
+    let browserBridge: BrowserBridge
 
     /// Memoized sorted output devices for the system-sounds picker.
     @State private var sortedOutputDevices: [AudioDevice] = []
@@ -27,6 +28,7 @@ struct AudioTab: View {
             VStack(alignment: .leading, spacing: 24) {
                 volumeSection
                 devicesSection
+                BrowsersSection(bridge: browserBridge)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 20)

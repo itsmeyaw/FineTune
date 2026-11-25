@@ -35,6 +35,15 @@ Code on the audio callback path (`processAudio()` in `Audio/Engine/ProcessTapCon
 
 - `CLAUDE.md`, `docs/`, `.claude/`, `reference/` (vendored Apple headers, not redistributable), and `scripts/spikes/` are gitignored. Never commit them.
 
+## Development
+
+- Use `caveman` skill, including for subagents.
+- Use `caveman-commit` skill for commit message.
+- Use `code-review` skills for review.
+- Commit in small functional changes.
+- Use `implement` skills for implementation.
+- Use `caveman-commit` skill for a PR title and `pr` skill for writing the PR body.
+
 ## Agent skills
 
 ### Issue tracker
