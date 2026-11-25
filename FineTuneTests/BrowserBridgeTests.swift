@@ -213,4 +213,106 @@ struct BrowserBridgeTests {
         defer { bridge.stop() }
         _ = try SocketClient(path: path)
     }
+
+    private func tab(_ id: Int, muted: Bool = false) -> BrowserTab {
+        BrowserTab(id: id, title: "T\(id)", site: "a.com", favicon: nil, isMuted: muted, isWindowFocused: false)
+    }
+
+    @Test("Tabs reported over the socket are listed under that Browser and cleared on disconnect")
+    func tabsLifecycle() async throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let path = shortSocketPath()
+        let bridge = BrowserBridge(home: home, socketPath: path, ownerBundleID: { _ in nil })
+        try bridge.start()
+        defer { bridge.stop() }
+
+        let client = try SocketClient(path: path)
+        client.send(.tabs([tab(1)]))  // before hello: ignored
+        client.send(.hello(extensionVersion: "0.1.0", browser: "chrome"))
+        client.send(.tabs([tab(1), tab(2)]))
+        #expect(await waitUntil { bridge.tabs.items(for: .chrome).count == 2 })
+
+        client.send(.tabUpdated(tab(2, muted: true)))
+        #expect(await waitUntil { bridge.tabs.items(for: .chrome).last?.tab.isMuted == true })
+
+        client.close()
+        #expect(await waitUntil { bridge.tabs.items(for: .chrome).isEmpty })
+    }
+
+    @Test("The process that launched the host decides the Browser, so Arc isn't mistaken for Chrome")
+    func ownerWinsOverHello() async throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let path = shortSocketPath()
+        let bridge = BrowserBridge(home: home, socketPath: path, ownerBundleID: { _ in "company.thebrowser.Browser" })
+        try bridge.start()
+        defer { bridge.stop() }
+
+        let client = try SocketClient(path: path)
+        defer { client.close() }
+        client.send(.hello(extensionVersion: "0.1.0", browser: "chrome"))
+        client.send(.tabs([tab(1)]))
+        #expect(await waitUntil { bridge.tabs.items(for: .arc).count == 1 })
+        #expect(bridge.tabs.items(for: .chrome).isEmpty)
+        #expect(bridge.status(for: .arc) == .connected)
+    }
+
+    @Test("An unrecognised owner falls back to the Browser named in hello")
+    func unknownOwnerFallsBack() async throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let path = shortSocketPath()
+        let bridge = BrowserBridge(home: home, socketPath: path, ownerBundleID: { _ in "com.apple.Terminal" })
+        try bridge.start()
+        defer { bridge.stop() }
+
+        let client = try SocketClient(path: path)
+        defer { client.close() }
+        client.send(.hello(extensionVersion: "0.1.0", browser: "edge"))
+        client.send(.tabs([tab(1)]))
+        #expect(await waitUntil { bridge.tabs.items(for: .edge).count == 1 })
+    }
+
+    @Test("Mute and focus commands reach the connection that owns the Tab")
+    func commands() async throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let path = shortSocketPath()
+        let bridge = BrowserBridge(home: home, socketPath: path, ownerBundleID: { _ in nil })
+        try bridge.start()
+        defer { bridge.stop() }
+
+        let client = try SocketClient(path: path)
+        defer { client.close() }
+        client.send(.hello(extensionVersion: "0.1.0", browser: "chrome"))
+        client.send(.tabs([tab(9)]))
+        #expect(await waitUntil { !bridge.tabs.items(for: .chrome).isEmpty })
+        let item = try #require(bridge.tabs.items(for: .chrome).first)
+
+        bridge.setMuted(item, to: true)
+        #expect(try await client.receive() == .setMuted(tabID: 9, muted: true))
+        bridge.focus(item)
+        #expect(try await client.receive() == .focus(tabID: 9))
+    }
+
+    @Test("A Tab that stops being audible disappears once its grace period ends")
+    func graceExpiresOnItsOwn() async throws {
+        let home = try tempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let path = shortSocketPath()
+        let bridge = BrowserBridge(home: home, socketPath: path, ownerBundleID: { _ in nil }, tabGracePeriod: 0.2)
+        try bridge.start()
+        defer { bridge.stop() }
+
+        let client = try SocketClient(path: path)
+        defer { client.close() }
+        client.send(.hello(extensionVersion: "0.1.0", browser: "chrome"))
+        client.send(.tabs([tab(1)]))
+        #expect(await waitUntil { !bridge.tabs.items(for: .chrome).isEmpty })
+        client.send(.tabRemoved(tabID: 1, closed: false))
+        try await Task.sleep(for: .milliseconds(80))
+        #expect(bridge.tabs.items(for: .chrome).count == 1)
+        #expect(await waitUntil { bridge.tabs.items(for: .chrome).isEmpty })
+    }
 }

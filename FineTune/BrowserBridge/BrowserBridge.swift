@@ -24,18 +24,36 @@ final class BrowserBridge {
     /// Installed Browsers (plus any that are connected), with their extension status.
     private(set) var entries: [Entry] = []
 
+    /// Tabs of the connected Browsers.
+    let tabs: BrowserTabStore
+
     @ObservationIgnored private let home: URL
     @ObservationIgnored private let socketPath: String
     @ObservationIgnored private var server: BrowserBridgeServer?
-    /// One entry per live host connection; the value is the Browser its `hello` named, once known.
-    @ObservationIgnored private var connections: [UUID: SupportedBrowser?] = [:]
+    @ObservationIgnored private var pruneTask: Task<Void, Never>?
+    /// One entry per live host connection.
+    @ObservationIgnored private var connections: [UUID: Connection] = [:]
+    @ObservationIgnored private let ownerBundleID: (pid_t) -> String?
 
+    private struct Connection {
+        /// The Browser that launched the host, when it could be read and is a supported Browser.
+        var owner: SupportedBrowser?
+        /// The Browser this connection speaks for, once `hello` arrived: the owner, else the one `hello` named.
+        var browser: SupportedBrowser?
+    }
+
+    /// - Parameter ownerBundleID: bundle ID of the app that launched the host process with the given pid.
+    ///   Arc and Chromium call themselves Chrome in `hello`; the launching process doesn't.
     init(
         home: URL = FileManager.default.homeDirectoryForCurrentUser,
-        socketPath: String = BrowserExtensionIdentity.socketPath
+        socketPath: String = BrowserExtensionIdentity.socketPath,
+        ownerBundleID: @escaping (pid_t) -> String? = BrowserHostOwner.bundleID(ofHostProcess:),
+        tabGracePeriod: TimeInterval = 5
     ) {
         self.home = home
         self.socketPath = socketPath
+        self.ownerBundleID = ownerBundleID
+        self.tabs = BrowserTabStore(gracePeriod: tabGracePeriod)
         refresh()
     }
 
@@ -72,13 +90,23 @@ final class BrowserBridge {
     func stop() {
         server?.stop()
         server = nil
+        for id in connections.keys { tabs.close(connection: id) }
         connections.removeAll()
         refresh()
     }
 
+    func setMuted(_ item: BrowserTabStore.Item, to muted: Bool) {
+        server?.send(.setMuted(tabID: item.tab.id, muted: muted), to: item.connection)
+    }
+
+    /// Brings the Tab to the front in its Browser.
+    func focus(_ item: BrowserTabStore.Item) {
+        server?.send(.focus(tabID: item.tab.id), to: item.connection)
+    }
+
     /// Re-scans installed Browsers and extension presence. Cheap enough to call when Settings appears.
     func refresh() {
-        let connected = Set(connections.values.compactMap { $0 })
+        let connected = Set(connections.values.compactMap(\.browser))
         let detector = BrowserExtensionDetector(home: home)
         let browsers = Set(SupportedBrowser.installed(home: home)).union(connected)
         entries = SupportedBrowser.allCases.filter(browsers.contains).map { browser in
@@ -90,23 +118,44 @@ final class BrowserBridge {
 
     private func handle(_ event: BrowserBridgeServer.Event) {
         switch event {
-        case let .opened(id):
-            connections[id] = .some(nil)
+        case let .opened(id, peerPID):
+            let owner = peerPID.flatMap(ownerBundleID).flatMap { SupportedBrowser(bundleID: $0) }
+            connections[id] = Connection(owner: owner, browser: nil)
         case let .message(id, message):
-            guard connections[id] != nil else { return }
+            guard let connection = connections[id] else { return }
             switch message {
             case let .hello(extensionVersion, browser):
                 logger.info("Extension \(extensionVersion) connected from \(browser)")
-                connections[id] = .some(SupportedBrowser(helloID: browser))
+                let resolved = connection.owner ?? SupportedBrowser(helloID: browser)
+                connections[id]?.browser = resolved
+                if let resolved { tabs.open(connection: id, browser: resolved) }
                 refresh()
             case .ping:
                 server?.send(.pong, to: id)
-            case .pong, .unknown:
+            case .tabs, .tabUpdated, .tabRemoved:
+                tabs.apply(message, connection: id)
+                schedulePrune()
+            case .pong, .setMuted, .focus, .unknown:
                 break
             }
         case let .closed(id):
             connections.removeValue(forKey: id)
+            tabs.close(connection: id)
+            schedulePrune()
             refresh()
+        }
+    }
+
+    /// Wakes at the next grace-period expiry to drop Tabs that stayed silent.
+    private func schedulePrune() {
+        pruneTask?.cancel()
+        pruneTask = nil
+        guard let expiry = tabs.nextExpiry else { return }
+        pruneTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(max(0, expiry.timeIntervalSinceNow)))
+            guard !Task.isCancelled, let self else { return }
+            tabs.prune()
+            schedulePrune()
         }
     }
 }

@@ -12,6 +12,13 @@ enum BrowserMessage: Equatable {
     case hello(extensionVersion: String, browser: String)
     case ping
     case pong
+    /// Full list of the connection's Tabs. Replaces everything reported before.
+    case tabs([BrowserTab])
+    case tabUpdated(BrowserTab)
+    /// `closed`: the tab was closed, as opposed to no longer being audible.
+    case tabRemoved(tabID: Int, closed: Bool)
+    case setMuted(tabID: Int, muted: Bool)
+    case focus(tabID: Int)
     /// A well-formed message of a type this build doesn't know. Ignored by receivers.
     case unknown(type: String)
 
@@ -39,6 +46,27 @@ enum BrowserMessage: Equatable {
             self = .ping
         case "pong":
             self = .pong
+        case "tabs":
+            guard let raw = object["tabs"] as? [Any] else { throw BrowserMessageError.malformed }
+            let tabs = raw.compactMap { BrowserTab(json: $0) }
+            guard tabs.count == raw.count else { throw BrowserMessageError.malformed }
+            self = .tabs(tabs)
+        case "tabUpdated":
+            guard let tab = BrowserTab(json: object["tab"]) else { throw BrowserMessageError.malformed }
+            self = .tabUpdated(tab)
+        case "tabRemoved":
+            guard let tabID = object["tabId"] as? Int, let closed = object["closed"] as? Bool else {
+                throw BrowserMessageError.malformed
+            }
+            self = .tabRemoved(tabID: tabID, closed: closed)
+        case "setMuted":
+            guard let tabID = object["tabId"] as? Int, let muted = object["muted"] as? Bool else {
+                throw BrowserMessageError.malformed
+            }
+            self = .setMuted(tabID: tabID, muted: muted)
+        case "focus":
+            guard let tabID = object["tabId"] as? Int else { throw BrowserMessageError.malformed }
+            self = .focus(tabID: tabID)
         default:
             self = .unknown(type: type)
         }
@@ -55,6 +83,23 @@ enum BrowserMessage: Equatable {
             object["type"] = "ping"
         case .pong:
             object["type"] = "pong"
+        case let .tabs(tabs):
+            object["type"] = "tabs"
+            object["tabs"] = tabs.map(\.jsonObject)
+        case let .tabUpdated(tab):
+            object["type"] = "tabUpdated"
+            object["tab"] = tab.jsonObject
+        case let .tabRemoved(tabID, closed):
+            object["type"] = "tabRemoved"
+            object["tabId"] = tabID
+            object["closed"] = closed
+        case let .setMuted(tabID, muted):
+            object["type"] = "setMuted"
+            object["tabId"] = tabID
+            object["muted"] = muted
+        case let .focus(tabID):
+            object["type"] = "focus"
+            object["tabId"] = tabID
         case let .unknown(type):
             object["type"] = type
         }

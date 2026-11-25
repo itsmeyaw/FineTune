@@ -53,6 +53,12 @@ struct BrowserMessageTests {
             #"{"v":1,"type":7}"#,
             #"{"v":1,"type":"hello","browser":"chrome"}"#,
             #"{"v":1,"type":"hello","extensionVersion":3,"browser":"chrome"}"#,
+            #"{"v":1,"type":"tabs"}"#,
+            #"{"v":1,"type":"tabs","tabs":[{"id":1}]}"#,
+            #"{"v":1,"type":"tabUpdated","tab":{"id":"1","title":"","site":"","muted":false,"windowFocused":false}}"#,
+            #"{"v":1,"type":"tabRemoved","tabId":1}"#,
+            #"{"v":1,"type":"setMuted","tabId":1}"#,
+            #"{"v":1,"type":"focus"}"#,
         ]
     )
     func malformed(input: String) {
@@ -65,6 +71,11 @@ struct BrowserMessageTests {
     func roundTrip() throws {
         let messages: [BrowserMessage] = [
             .hello(extensionVersion: "1.2.3", browser: "brave"), .ping, .pong,
+            .tabs([BrowserTab(id: 1, title: "A", site: "a.com", favicon: "data:image/png;base64,AA==", isMuted: true, isWindowFocused: false)]),
+            .tabUpdated(BrowserTab(id: 2, title: "", site: "", favicon: nil, isMuted: false, isWindowFocused: true)),
+            .tabRemoved(tabID: 3, closed: true),
+            .setMuted(tabID: 4, muted: true),
+            .focus(tabID: 5),
         ]
         for message in messages {
             let data = message.encoded()
@@ -72,6 +83,34 @@ struct BrowserMessageTests {
             let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
             #expect(object["v"] as? Int == 1)
         }
+    }
+
+    @Test("Decodes a tab snapshot, ignoring unknown fields")
+    func decodeTabs() throws {
+        let message = try BrowserMessage(decoding: json("""
+            {"v":1,"type":"tabs","tabs":[
+              {"id":12,"title":"Song","site":"www.youtube.com","favicon":"https://y.com/f.ico","muted":false,"windowFocused":true,"future":1},
+              {"id":13,"title":"","site":"","muted":true,"windowFocused":false}
+            ]}
+            """))
+        #expect(message == .tabs([
+            BrowserTab(id: 12, title: "Song", site: "www.youtube.com", favicon: "https://y.com/f.ico", isMuted: false, isWindowFocused: true),
+            BrowserTab(id: 13, title: "", site: "", favicon: nil, isMuted: true, isWindowFocused: false),
+        ]))
+    }
+
+    @Test("Decodes tab removal")
+    func decodeTabRemoved() throws {
+        #expect(try BrowserMessage(decoding: json(#"{"v":1,"type":"tabRemoved","tabId":3,"closed":true}"#)) == .tabRemoved(tabID: 3, closed: true))
+        #expect(try BrowserMessage(decoding: json(#"{"v":1,"type":"tabRemoved","tabId":3,"closed":false}"#)) == .tabRemoved(tabID: 3, closed: false))
+    }
+
+    @Test("Commands encode to the documented wire form")
+    func commandWireForms() {
+        #expect(String(decoding: BrowserMessage.setMuted(tabID: 4, muted: true).encoded(), as: UTF8.self)
+            == #"{"muted":true,"tabId":4,"type":"setMuted","v":1}"#)
+        #expect(String(decoding: BrowserMessage.focus(tabID: 5).encoded(), as: UTF8.self)
+            == #"{"tabId":5,"type":"focus","v":1}"#)
     }
 
     @Test("Pong encodes to the documented wire form")
