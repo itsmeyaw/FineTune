@@ -10,6 +10,12 @@ enum BrowserExtensionIdentity {
     /// from that key, so the two cannot drift apart.
     static let extensionID = "jhnijagbnendhkhdgakpcjkcikphpdfo"
 
+    /// Socket the app listens on and the host process connects to.
+    static var socketPath: String {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("FineTune/browser-bridge.sock").path
+    }
+
     static let allowedOrigin = "chrome-extension://\(extensionID)/"
 
     // shortcut: placeholder URL, replace with the real Web Store listing once it is published.

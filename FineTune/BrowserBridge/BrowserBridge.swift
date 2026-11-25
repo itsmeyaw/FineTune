@@ -21,11 +21,6 @@ final class BrowserBridge {
         var id: SupportedBrowser { browser }
     }
 
-    static var defaultSocketPath: String {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("FineTune/browser-bridge.sock").path
-    }
-
     /// Installed Browsers (plus any that are connected), with their extension status.
     private(set) var entries: [Entry] = []
 
@@ -37,7 +32,7 @@ final class BrowserBridge {
 
     init(
         home: URL = FileManager.default.homeDirectoryForCurrentUser,
-        socketPath: String = BrowserBridge.defaultSocketPath
+        socketPath: String = BrowserExtensionIdentity.socketPath
     ) {
         self.home = home
         self.socketPath = socketPath
@@ -57,6 +52,21 @@ final class BrowserBridge {
         }
         try server.start()
         self.server = server
+    }
+
+    /// App-launch entry point: serves the socket and points each installed Browser's host manifest at this executable.
+    /// Failures are logged only; FineTune works the same without the bridge.
+    func launch(executablePath: String) {
+        do {
+            try start()
+        } catch {
+            logger.error("Browser bridge not started: \(String(describing: error))")
+        }
+        let home = home
+        Task.detached(priority: .utility) {
+            HostManifestInstaller(home: home).install(executablePath: executablePath)
+            await self.refresh()
+        }
     }
 
     func stop() {

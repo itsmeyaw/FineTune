@@ -36,7 +36,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 }
 
+/// Decides between host mode and the normal app before SwiftUI or AppKit start.
 @main
+enum FineTuneMain {
+    static func main() {
+        if NativeMessagingHost.isHostInvocation(CommandLine.arguments) {
+            exit(NativeMessagingHost.run())
+        }
+        FineTuneApp.main()
+    }
+}
+
 struct FineTuneApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var audioEngine: AudioEngine
@@ -50,6 +60,7 @@ struct FineTuneApp: App {
     @State private var menuBarPopupController: MenuBarPopupController
     @State private var shortcutsRegistry: ShortcutsRegistry
     @State private var resolver: TargetAppResolver
+    @State private var browserBridge: BrowserBridge
     @StateObject private var updateManager = UpdateManager()
     @State private var showMenuBarExtra = true
 
@@ -66,6 +77,7 @@ struct FineTuneApp: App {
                 settings: audioEngine.settingsManager,
                 audioEngine: audioEngine,
                 deviceVolumeMonitor: audioEngine.deviceVolumeMonitor as! DeviceVolumeMonitor,
+                browserBridge: browserBridge,
                 accessibility: accessibility,
                 mediaKeyStatus: mediaKeyStatus,
                 mediaKeyMonitor: mediaKeyMonitor,
@@ -222,6 +234,15 @@ struct FineTuneApp: App {
         _shortcutsRegistry = State(initialValue: registry)
         _resolver = State(initialValue: resolver)
 
+        // Browser Extension bridge. Skipped under XCTest so test runs don't rewrite the
+        // user's native messaging host manifests to point at the test host.
+        let bridge = BrowserBridge()
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil,
+           let executablePath = Bundle.main.executableURL?.path {
+            bridge.launch(executablePath: executablePath)
+        }
+        _browserBridge = State(initialValue: bridge)
+
         // Pass engine to AppDelegate
         _appDelegate.wrappedValue.audioEngine = engine
 
@@ -248,8 +269,9 @@ struct FineTuneApp: App {
             forName: NSApplication.willTerminateNotification,
             object: nil,
             queue: .main
-        ) { [settings, monitor, accessibilityService, hud, coordinator] _ in
+        ) { [settings, monitor, accessibilityService, hud, coordinator, bridge] _ in
             MainActor.assumeIsolated {
+                bridge.stop()
                 coordinator.stop()
                 monitor.stop()
                 accessibilityService.stop()
