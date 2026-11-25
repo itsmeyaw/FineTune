@@ -14,7 +14,7 @@ enum BrowserBridgeServerError: Error {
 /// relaying frames for one Browser Extension instance. Everything runs on a private serial queue.
 final class BrowserBridgeServer: @unchecked Sendable {
     enum Event {
-        case opened(UUID)
+        case opened(UUID, peerPID: pid_t?)
         case message(UUID, BrowserMessage)
         case closed(UUID)
     }
@@ -122,7 +122,7 @@ final class BrowserBridgeServer: @unchecked Sendable {
             source.setCancelHandler { close(fd) }
             connections[id] = Connection(fd: fd, source: source)
             source.resume()
-            onEvent(.opened(id))
+            onEvent(.opened(id, peerPID: Self.peerPID(of: fd)))
         }
     }
 
@@ -157,6 +157,12 @@ final class BrowserBridgeServer: @unchecked Sendable {
         guard let connection = connections.removeValue(forKey: id) else { return }
         connection.source.cancel()
         onEvent(.closed(id))
+    }
+
+    private static func peerPID(of fd: Int32) -> pid_t? {
+        var pid: pid_t = 0
+        var length = socklen_t(MemoryLayout<pid_t>.size)
+        return getsockopt(fd, SOL_LOCAL, LOCAL_PEERPID, &pid, &length) == 0 ? pid : nil
     }
 
     private static func setNonBlocking(_ fd: Int32) {

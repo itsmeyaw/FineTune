@@ -12,6 +12,23 @@ enum SupportedBrowser: String, CaseIterable, Identifiable {
         self.init(rawValue: helloID)
     }
 
+    /// The Browser's main app bundle ID, which is also its App Row's bundle ID.
+    var bundleID: String {
+        switch self {
+        case .chrome: "com.google.Chrome"
+        case .edge: "com.microsoft.edgemac"
+        case .brave: "com.brave.Browser"
+        case .arc: "company.thebrowser.Browser"
+        case .vivaldi: "com.vivaldi.Vivaldi"
+        case .chromium: "org.chromium.Chromium"
+        }
+    }
+
+    init?(bundleID: String) {
+        guard let browser = Self.allCases.first(where: { $0.bundleID == bundleID }) else { return nil }
+        self = browser
+    }
+
     var displayName: String {
         switch self {
         case .chrome: "Google Chrome"

@@ -7,6 +7,7 @@ final class PopupKeyboardNavModel {
     enum RowID: Hashable {
         case device(uid: String)
         case app(persistenceID: String)
+        case tab(BrowserTabStore.Item.ID)
     }
 
     private(set) var orderedRowIDs: [RowID] = []
@@ -14,6 +15,7 @@ final class PopupKeyboardNavModel {
     func syncOrder(
         activeDevices: [AudioDevice],
         appPersistenceIDs: [String],
+        tabIDsByApp: [String: [BrowserTabStore.Item.ID]] = [:],
         isEditingPriority: Bool
     ) {
         guard !isEditingPriority else {
@@ -27,6 +29,9 @@ final class PopupKeyboardNavModel {
         }
         for id in appPersistenceIDs {
             next.append(.app(persistenceID: id))
+            for tabID in tabIDsByApp[id] ?? [] {
+                next.append(.tab(tabID))
+            }
         }
         orderedRowIDs = next
     }
