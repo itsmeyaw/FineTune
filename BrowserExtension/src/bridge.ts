@@ -31,6 +31,8 @@ export class Bridge extends Context.Service<
     readonly send: (message: OutboundMessage) => Effect.Effect<void>;
     /** Emits each time a connection to the app is established; consume with one reader. */
     readonly connected: Stream.Stream<void>;
+    /** Emits each time a connection to the app ends, however it ended; consume with one reader. */
+    readonly disconnected: Stream.Stream<void>;
     /** Commands from the app; consume with one reader. */
     readonly commands: Stream.Stream<Command>;
   }
@@ -42,6 +44,7 @@ export class Bridge extends Context.Service<
       const info = yield* ExtensionInfo;
       const current = yield* Ref.make<NativePort | undefined>(undefined);
       const connected = yield* Queue.unbounded<void>();
+      const disconnected = yield* Queue.unbounded<void>();
       const commands = yield* Queue.unbounded<Command>();
 
       const session = Effect.gen(function* () {
@@ -49,7 +52,9 @@ export class Bridge extends Context.Service<
         const heardSinceBeat = yield* Ref.make(false);
         const everHeard = yield* Ref.make(false);
         yield* Ref.set(current, port);
-        yield* Effect.addFinalizer(() => Ref.set(current, undefined));
+        yield* Effect.addFinalizer(() =>
+          Ref.set(current, undefined).pipe(Effect.andThen(Queue.offer(disconnected, undefined))),
+        );
         yield* sendOn(port, helloMessage(info.extensionVersion, info.browser));
         yield* sendOn(port, pingMessage());
         yield* Queue.offer(connected, undefined);
@@ -99,6 +104,7 @@ export class Bridge extends Context.Service<
       return Bridge.of({
         send,
         connected: Stream.fromQueue(connected),
+        disconnected: Stream.fromQueue(disconnected),
         commands: Stream.fromQueue(commands),
       });
     }),

@@ -1,11 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Effect, Layer } from "effect";
+import { Effect } from "effect";
 import { TestClock } from "effect/testing";
-import { Bridge } from "../src/bridge.ts";
 import type { ChromeTab } from "../src/chrome.ts";
-import { isReportable, tabInfo, TabReporter } from "../src/tabs.ts";
-import { makeFakeChrome, runTest, settle, testExtensionInfo } from "./support.ts";
+import { isReportable, tabInfo } from "../src/tabs.ts";
+import { runTest, settle, startReporter as start } from "./support.ts";
 
 const tab = (over: Partial<ChromeTab> = {}): ChromeTab => ({
   id: 1,
@@ -19,27 +18,12 @@ const tab = (over: Partial<ChromeTab> = {}): ChromeTab => ({
 });
 
 const PNG = "data:image/png;base64,iVBORw0KGgo=";
+const full = { level: 1, supported: true };
+const unsupported = { level: 1, supported: false };
 
 const muted = (over: Partial<ChromeTab> = {}) =>
   tab({ audible: false, mutedInfo: { muted: true }, ...over });
 const silent = (over: Partial<ChromeTab> = {}) => tab({ audible: false, ...over });
-
-/** Connects the extension to the fake app; messages sent after hello and ping are what the app sees. */
-const start = (options: Parameters<typeof makeFakeChrome>[0] = {}) =>
-  Effect.gen(function* () {
-    const fake = makeFakeChrome(options);
-    yield* Layer.build(
-      TabReporter.layer.pipe(
-        Layer.provide(Bridge.layer),
-        Layer.provide(Layer.merge(fake.layer, testExtensionInfo)),
-      ),
-    );
-    yield* settle;
-    const port = fake.ports[0];
-    assert.ok(port);
-    const sent = () => port.sent.slice(2);
-    return { ...fake, port, sent };
-  });
 
 test("reports audible tabs and muted tabs, nothing else", () => {
   assert.equal(isReportable(tab()), true);
@@ -48,24 +32,28 @@ test("reports audible tabs and muted tabs, nothing else", () => {
   assert.equal(isReportable({ id: 2, windowId: 1 }), false);
 });
 
-test("tabInfo carries id, title, site, favicon, muted and window focus", () => {
-  assert.deepEqual(tabInfo(tab(), 10, PNG), {
+test("tabInfo carries id, title, site, favicon, muted, window focus and volume", () => {
+  assert.deepEqual(tabInfo(tab(), 10, PNG, full), {
     id: 1,
     title: "Song",
     site: "www.youtube.com",
     favicon: PNG,
     muted: false,
     windowFocused: true,
+    volume: 1,
+    volumeSupported: true,
   });
-  assert.deepEqual(tabInfo(muted({ url: "chrome://x" }), 99, undefined), {
+  assert.deepEqual(tabInfo(muted({ url: "chrome://x" }), 99, undefined, unsupported), {
     id: 1,
     title: "Song",
     site: "x",
     muted: true,
     windowFocused: false,
+    volume: 1,
+    volumeSupported: false,
   });
-  assert.equal(tabInfo(tab({ url: undefined, title: undefined }), 10, undefined).site, "");
-  assert.equal(tabInfo(tab({ url: "not a url" }), 10, undefined).site, "");
+  assert.equal(tabInfo(tab({ url: undefined, title: undefined }), 10, undefined, full).site, "");
+  assert.equal(tabInfo(tab({ url: "not a url" }), 10, undefined, full).site, "");
 });
 
 test("the favicon is a local data URL; the page's remote favicon URL is never sent", () =>

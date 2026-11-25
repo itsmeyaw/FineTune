@@ -35,7 +35,7 @@ export const Tab = Schema.Struct({
   muted: Schema.Boolean,
   windowFocused: Schema.Boolean,
   /** Tab Volume, 0…1. Receivers treat a missing one as 1. */
-  volume: Schema.optionalKey(Schema.Number),
+  volume: Schema.optionalKey(Schema.Finite),
   /** False on pages the extension can't run in; receivers treat a missing one as false. */
   volumeSupported: Schema.optionalKey(Schema.Boolean),
 });
@@ -109,7 +109,7 @@ export const SetVolume = Schema.Struct({
   v: Version,
   type: Schema.Literal("setVolume"),
   tabId: Schema.Int,
-  volume: Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: 1 })),
+  volume: Schema.Finite.check(Schema.isBetween({ minimum: 0, maximum: 1 })),
 });
 
 /** What the app asks the extension to do with a tab. */

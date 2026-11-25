@@ -2,6 +2,7 @@
 import { Context, Deferred, Effect, Exit, Layer, Queue, Schema, Stream } from "effect";
 import type { Scope } from "effect";
 import { MAX_FAVICON_DATA_URL_LENGTH } from "./protocol.ts";
+import { GET_VOLUME, SET_VOLUME } from "./content/channel.ts";
 import type { BrowserName } from "./protocol.ts";
 
 export interface NativePort {
@@ -33,6 +34,12 @@ export type TabEvent =
   | { readonly kind: "removed"; readonly tabId: number }
   | { readonly kind: "windowFocusChanged"; readonly windowId: number };
 
+/** A content script asking what volume its tab should play at; `respond` answers it. */
+export interface VolumeRequest {
+  readonly tabId: number;
+  readonly respond: (volume: number) => void;
+}
+
 export class ChromeError extends Schema.TaggedError<
   ChromeError,
   { readonly brand: unique symbol }
@@ -53,6 +60,15 @@ export class Chrome extends Context.Service<
      * undefined when there is none or it is too big. Never touches the network.
      */
     readonly favicon: (pageUrl: string) => Effect.Effect<string | undefined, ChromeError>;
+    /**
+     * Puts the content scripts into every frame of the tab (they're already there for pages opened since the
+     * extension loaded). Fails on pages scripts can't run in: chrome://, the Web Store, the PDF viewer.
+     */
+    readonly injectContentScripts: (tabId: number) => Effect.Effect<void, ChromeError>;
+    /** Tells every frame of the tab its volume. Fails when no frame has a content script. */
+    readonly sendTabVolume: (tabId: number, volume: number) => Effect.Effect<void, ChromeError>;
+    /** Content scripts asking for their tab's volume; consume with one reader. */
+    readonly volumeRequests: Stream.Stream<VolumeRequest>;
     /** The browser's last focused window, or undefined when it has none. */
     readonly lastFocusedWindowId: Effect.Effect<number | undefined>;
     /** Tab events from the moment the layer was built; consume with one reader. */
@@ -80,6 +96,15 @@ export class Chrome extends Context.Service<
       });
       chrome.windows.onFocusChanged.addListener((windowId) => {
         Queue.offerUnsafe(events, { kind: "windowFocusChanged", windowId });
+      });
+
+      const volumeRequests = yield* Queue.unbounded<VolumeRequest>();
+      chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
+        const tabId = sender.tab?.id;
+        if (tabId === undefined || !isRequest(message)) return false;
+        Queue.offerUnsafe(volumeRequests, { tabId, respond: sendResponse });
+        // The answer comes later, from the reader of `volumeRequests`.
+        return true;
       });
 
       const attempt = <A>(run: () => Promise<A>) =>
@@ -133,6 +158,21 @@ export class Chrome extends Context.Service<
             const bytes = new Uint8Array(await blob.arrayBuffer());
             return `data:image/png;base64,${btoa(String.fromCharCode(...bytes))}`;
           }),
+        injectContentScripts: (tabId) =>
+          attempt(async () => {
+            const target = { tabId, allFrames: true };
+            await chrome.scripting.executeScript({
+              target,
+              files: ["main-world.js"],
+              world: "MAIN",
+            });
+            await chrome.scripting.executeScript({ target, files: ["isolated-world.js"] });
+          }),
+        sendTabVolume: (tabId, volume) =>
+          attempt(() => chrome.tabs.sendMessage(tabId, { type: SET_VOLUME, volume })).pipe(
+            Effect.asVoid,
+          ),
+        volumeRequests: Stream.fromQueue(volumeRequests),
         lastFocusedWindowId: attempt(() => chrome.windows.getLastFocused()).pipe(
           Effect.map((window) => window.id),
           // macOS Chrome can run with no window.
@@ -143,6 +183,9 @@ export class Chrome extends Context.Service<
     }),
   );
 }
+
+const isRequest = (message: unknown) =>
+  typeof message === "object" && message !== null && Reflect.get(message, "type") === GET_VOLUME;
 
 function toChromeTab(tab: chrome.tabs.Tab): ChromeTab | undefined {
   if (tab.id === undefined) return undefined;
